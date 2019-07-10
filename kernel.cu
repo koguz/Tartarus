@@ -7,7 +7,7 @@
 #include <time.h>
 #include <math.h>
 
-#define M_PI 3.14159265358979323846264338327950288
+constexpr auto M_PI = 3.14159265358979323846264338327950288;
 
 struct gene {
 	int next_state;
