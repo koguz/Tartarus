@@ -140,18 +140,18 @@ void shuffle(int* arr, int S) {  // Fisher-Yates Shuffle
 
 int main(int argc, char** argv) {
 	srand(time(0));
-	int S = atoi(argv[1]);
-	int T = atoi(argv[2]);
+	int S = atoi(argv[1]);  // number of states
+	int N = atoi(argv[2]);  // number of individuals in the population
+	int T = atoi(argv[3]);  // run
+
 	char fname[50];
 	printf("%d", atoi(argv[1]));
-	sprintf(fname, "adaptive_results-%d-%d.txt", S, T);
+	sprintf(fname, "cuda-results-%d-%d-%d.txt", S, N, T);
 	FILE* results;              // save the results to a file
 	int i, j, k, m, n;          // variables of /for/ loops
 	int B = 6;                  // number of boxes
 	int R = 6;                  // size of board
-	int N = 800;                // number of individuals in the population
-	//int S = 7;                  // number of states
-	int C = (int)pow(3, 8);    // combinations of wall, box and empty cells
+	int C = (int)pow(3, 8);     // combinations of wall, box and empty cells
 	int G = S * C + 1;          // number of genes in the chromosome
 	int K = 1000;               // number of generations
 	int M = 80;                 // number of moves allowed
