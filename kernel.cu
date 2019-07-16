@@ -4,8 +4,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <iostream> 
 #include <time.h>
 #include <math.h>
+#include <curand_kernel.h>
 
 constexpr auto M_PI = 3.14159265358979323846264338327950288;
 
@@ -28,6 +30,7 @@ void rotate_ccw(struct pos* c, double d) {
 
 struct pos random_direction() {
 	struct pos d;
+	d.x = 0; d.y = 0;
 	switch (rand() % 4) {
 	case 0:
 		d.x = 0; d.y = -1;
@@ -138,14 +141,36 @@ void shuffle(int* arr, int S) {  // Fisher-Yates Shuffle
 	}
 }
 
+__global__ void init_random(curandState* state) {
+	int id = threadIdx.x + blockIdx.x * 64;
+	curand_init(1234, id, 0, &state[id]);
+}
+
+__global__ void init_generation(struct gene* pop, size_t pitch, int G, int N, int S, curandState* state) { // N number of individuals, G size of individual
+	// T* pElement = (T*)((char*)BaseAddress + Row * pitch) + Column;
+	// float* row = (float*)((char*)devPtr + r * pitch);
+	int id = threadIdx.x + blockIdx.x * 64;
+	curandState localState = state[id];
+	for (int i = 0; i < N; i++) {
+		struct gene* t = (struct gene*)((char*)pop + N * pitch);
+		// pop[i] = (struct gene*)malloc(sizeof(struct gene) * G);
+		for (int j = 0; j < G; j++) {
+			t[j].next_state = curand(&localState) % S; // rand() % S;
+			t[j].action = curand(&localState); // rand() % 3;
+			//pop[i][j].next_state = rand() % S;
+			//pop[i][j].action = rand() % 3;
+		}
+	}
+}
+
 int main(int argc, char** argv) {
-	srand(time(0));
-	int S = atoi(argv[1]);  // number of states
-	int N = atoi(argv[2]);  // number of individuals in the population
-	int T = atoi(argv[3]);  // run
+	srand(time(0)); 
+	int S = 4;			//atoi(argv[1]);  // number of states
+	int N = 200;		//atoi(argv[2]);  // number of individuals in the population
+	int T = 1;			// atoi(argv[3]);  // run
 
 	char fname[50];
-	printf("%d", atoi(argv[1]));
+	//printf("%d", atoi(argv[1]));
 	sprintf(fname, "cuda-results-%d-%d-%d.txt", S, N, T);
 	FILE* results;              // save the results to a file
 	int i, j, k, m, n;          // variables of /for/ loops
@@ -164,15 +189,26 @@ int main(int argc, char** argv) {
 	int* idx = (int*)malloc(sizeof(int) * N);
 	float alimit = 0.1f;
 
-	struct gene** pop = (struct gene**)malloc(sizeof(struct gene*) * N);
-	for (i = 0; i < N; i++) {
+	curandState* devStates;
+	cudaMalloc((void**)& devStates, 100 * 512 * sizeof(curandState));
+	init_random<<<64, 64>>>(devStates);
+
+	struct gene* pop;
+	size_t pitch; 
+	cudaMallocPitch(&pop, &pitch, G * sizeof(struct gene), N);
+	init_generation<<<64, 64>>>(pop, pitch, G, N, S, devStates);
+	cudaFree(pop);
+	cudaFree(devStates);
+
+	//((struct gene**)malloc(sizeof(struct gene*) * N);
+	/*for (i = 0; i < N; i++) {
 		pop[i] = (struct gene*)malloc(sizeof(struct gene) * G);
 		for (j = 0; j < G; j++) {
 			pop[i][j].next_state = rand() % S;
 			pop[i][j].action = rand() % 3;
 		}
-	}
-
+	}  // 3.241 ms
+	
 	results = fopen(fname, "w");
 	for (i = 0; i < K; i++) {              // loop generations
 		for (j = 0; j < N; j++) {          // loop individuals
@@ -326,7 +362,8 @@ int main(int argc, char** argv) {
 			}
 		}
 	} // i -> end of generations
-	fclose(results);
+	*/
+	//fclose(results);
 	return 0;
 }
 
