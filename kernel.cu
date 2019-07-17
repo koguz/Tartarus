@@ -17,12 +17,13 @@ typedef struct position {
 	int y;
 } pos;
 
-__global__ void init_population(gene* pop, size_t pitch, int W, int N) {
-	for (int i = 0; i < N; i++) {
-		gene* ind = (gene*)((char*)pop + i * pitch);
-		ind->action = 0;
-		ind->next_state = 0;
+__global__ void init_population(gene* pop, size_t pitch, int G) { 
+	gene* ind = (gene*)((char*)pop + blockIdx.x * pitch);
+	for (int i = 0; i < G; i++) {
+		ind[i].action = 0;
+		ind[i].next_state = 0; 
 	}
+	// printf("Individual %d, gene %d - %d\n", blockIdx.x, threadIdx.x, ind[100].action);
 }
 
 int main(int argc, char** argv) {
@@ -61,10 +62,14 @@ int main(int argc, char** argv) {
 		printf("error in initialization of cudaMallocPitch\n");
 		return -1;
 	}
-	// this should be <<<N, G>>> so that each block can use 1 thread
-	// to initialize one state of each individual in the population... 
-	init_population <<<1, 1>>> (pop, pitch, G, N);  
-
+	// int block_size = 1024;				// number of threads in a block
+	// int num_blocks = ((N * G) + block_size - 1) / block_size;
+	init_population <<<N, 1>>> (pop, pitch, G);// , G, N);
+	cudaStatus = cudaGetLastError();
+	if (cudaStatus != cudaSuccess) {
+		printf("Error initializing kernel 'init_population'\nErr: %s\n", cudaGetErrorString(cudaStatus));
+		return -1;
+	}
 	
 	return 0;
 }
