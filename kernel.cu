@@ -4,6 +4,8 @@
 
 #include <stdio.h>
 #include <math.h>
+#include <cuda.h>
+#include <curand_kernel.h>
 
 constexpr auto M_PI = 3.14159265358979323846264338327950288;
 
@@ -17,11 +19,15 @@ typedef struct position {
 	int y;
 } pos;
 
-__global__ void init_population(gene* pop, size_t pitch, int G) { 
+__global__ void init_population(gene* pop, size_t pitch, int G, int S, curandState* state) { 
+	int id = blockIdx.x; 
+	curand_init(1234, id, 0, &state[id]);
 	gene* ind = (gene*)((char*)pop + blockIdx.x * pitch);
+	curandState localState = state[id];
 	for (int i = 0; i < G; i++) {
-		ind[i].action = 0;
-		ind[i].next_state = 0; 
+		ind[i].action = curand(&localState) % 3;
+		ind[i].next_state = curand(&localState) % S; 
+		// printf("ind[%d] = (%d, %d) - ", i, ind[i].action, ind[i].next_state);
 	}
 	// printf("Individual %d, gene %d - %d\n", blockIdx.x, threadIdx.x, ind[100].action);
 }
@@ -62,9 +68,11 @@ int main(int argc, char** argv) {
 		printf("error in initialization of cudaMallocPitch\n");
 		return -1;
 	}
+	curandState* devStates;
+	cudaMalloc((void**)& devStates, N * sizeof(curandState));
 	// int block_size = 1024;				// number of threads in a block
 	// int num_blocks = ((N * G) + block_size - 1) / block_size;
-	init_population <<<N, 1>>> (pop, pitch, G);// , G, N);
+	init_population <<<N, 1>>> (pop, pitch, G, S, devStates);// , G, N);
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
 		printf("Error initializing kernel 'init_population'\nErr: %s\n", cudaGetErrorString(cudaStatus));
