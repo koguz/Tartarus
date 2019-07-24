@@ -1,3 +1,4 @@
+
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
@@ -44,8 +45,32 @@ __global__ void generate_boards(int* boards, size_t pitch, curandState* state, i
 	curandState localState = state[id];
 
 	int* board = (int*)((char*)boards + id * pitch);
-	for (int i = 0; i < R * R; i++) board[i] = 0; // first let all be 0
-	
+	while (1) {
+		for (int i = 0; i < R * R; i++) board[i] = 0; // first let all be 0
+		int i = 0;
+		do {
+			int x = (curand(&localState) % (R - 2)) + 1;
+			int y = (curand(&localState) % (R - 2)) + 1;
+			if (board[x * R + y] == 0) {
+				board[x * R + y] = 1;
+				i++;
+			}
+		} while (i < 6);  // magic number 6 -> number of boxes... 
+
+		int repeat = 0;
+		for (int i = 0; i < R * R; i++) {
+			if (
+				board[i] == 1 &&
+				board[i + 1] == 1 &&
+				board[i + R] == 1 &&
+				board[i + R + 1] == 1
+				) {
+				repeat = 1;
+				break;
+			}
+		}
+		if (repeat == 0) break;
+	}
 }
 
 __global__ void run_board(gene* pop, size_t pitch, curandState* state) {
@@ -113,16 +138,16 @@ int main(int argc, char** argv) {
 
 	cudaMallocManaged(&Q, N * sizeof(int));
 	for (int i = 0; i < N; i++) Q[i] = rand(); // % 65536;
-	setup_states<<<num_blocks, block_size>>> (devStates, Q);
+	setup_states<<<num_blocks, block_size>>>(devStates, Q);
 	cudaFree(Q);
 
 	cudaMallocManaged(&Q, N * P * sizeof(int));
 	for (int i = 0; i < N; i++) Q[i] = rand(); // % 65536;
-	setup_states <<<N, P >>> (board_states, Q);
+	setup_states<<<N, P>>>(board_states, Q);
 	cudaFree(Q);
 
 	// consecutive kernel calls do not require cudaDeviceSynchronize since they are queued... 
-	init_population<<<num_blocks, block_size>>> (pop, pitch, G, S, devStates);// , G, N);
+	init_population<<<num_blocks, block_size>>>(pop, pitch, G, S, devStates);// , G, N);
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
 		printf("Error initializing kernel 'init_population'\nErr: %s\n", cudaGetErrorString(cudaStatus));
@@ -132,7 +157,7 @@ int main(int argc, char** argv) {
 	// we need a memory block for the boards... The size is R*R to N*P
 	int* boards;
 	size_t board_pitch;
-	cudaError_t cudaStatus = cudaMallocPitch(&boards, &board_pitch, R * R * sizeof(int), N * P);
+	cudaStatus = cudaMallocPitch(&boards, &board_pitch, R * R * sizeof(int), N * P);
 	if (cudaStatus != cudaSuccess) {
 		printf("error in initialization of cudaMallocPitch of boards\n");
 		return -1;
