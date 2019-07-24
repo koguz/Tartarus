@@ -1,9 +1,10 @@
-
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
+#include <time.h>
 #include <cuda.h>
 #include <curand_kernel.h>
 
@@ -19,17 +20,23 @@ typedef struct position {
 	int y;
 } pos;
 
+__global__ void setup_pop_states(curandState* state, int* Q) {
+	int id = blockIdx.x * blockDim.x + threadIdx.x;
+	curand_init(Q[id], id, 0, &state[id]);
+}
+
 __global__ void init_population(gene* pop, size_t pitch, int G, int S, curandState* state) { 
-	int id = blockIdx.x; 
-	curand_init(1234, id, 0, &state[id]);
-	gene* ind = (gene*)((char*)pop + blockIdx.x * pitch);
+	int id = blockIdx.x * blockDim.x + threadIdx.x;
 	curandState localState = state[id];
+
+	gene* ind = (gene*)((char*)pop + id * pitch);
 	for (int i = 0; i < G; i++) {
 		ind[i].action = curand(&localState) % 3;
 		ind[i].next_state = curand(&localState) % S; 
-		// printf("ind[%d] = (%d, %d) - ", i, ind[i].action, ind[i].next_state);
+		// check randomness if necessary
+		/*if (id == 200)
+			printf("(%d, %d)\n", ind[i].action, ind[i].next_state);*/
 	}
-	// printf("Individual %d, gene %d - %d\n", blockIdx.x, threadIdx.x, ind[100].action);
 }
 
 int main(int argc, char** argv) {
@@ -54,13 +61,17 @@ int main(int argc, char** argv) {
 			 number of threads in as many blocks as possible. 
 	 */
 	
+	// generate N number of random values and pass them to GPU as initial seeds
+	srand(time(0));
 
 	// Let's try to use cudaMallocPitch to create a two dimensional array for 
 	// the population. 
-	int N = 200;						// number of individuals in population
+	int N = 256;						// number of individuals in population
 	int S = 4;							// number of states
 	int C = (int)pow(3, 8);				// number of combinations
 	int G = S * C + 1;					// number of genes in the individual
+	int* Q;								// generate N number of random seeds on host
+	
 	gene* pop; 
 	size_t pitch;
 	cudaError_t cudaStatus = cudaMallocPitch(&pop, &pitch, G * sizeof(gene), N);
@@ -68,16 +79,27 @@ int main(int argc, char** argv) {
 		printf("error in initialization of cudaMallocPitch\n");
 		return -1;
 	}
+	
+	int block_size = 256;				// number of threads in a block
+	int num_blocks = (N + block_size - 1) / block_size;
+
 	curandState* devStates;
 	cudaMalloc((void**)& devStates, N * sizeof(curandState));
-	// int block_size = 1024;				// number of threads in a block
-	// int num_blocks = ((N * G) + block_size - 1) / block_size;
-	init_population <<<N, 1>>> (pop, pitch, G, S, devStates);// , G, N);
+
+	cudaMallocManaged(&Q, N * sizeof(int));
+	for (int i = 0; i < N; i++) Q[i] = rand() % 65536;
+	setup_pop_states<<<num_blocks, block_size>>> (devStates, Q);
+	cudaFree(Q);
+
+	// consecutive kernel calls do not require cudaDeviceSynchronize since they are queued... 
+	init_population<<<num_blocks, block_size>>> (pop, pitch, G, S, devStates);// , G, N);
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
 		printf("Error initializing kernel 'init_population'\nErr: %s\n", cudaGetErrorString(cudaStatus));
 		return -1;
 	}
+
+	
 	
 	return 0;
 }
