@@ -20,7 +20,7 @@ typedef struct position {
 	int y;
 } pos;
 
-__global__ void setup_pop_states(curandState* state, int* Q) {
+__global__ void setup_states(curandState* state, int* Q) {
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
 	curand_init(Q[id], id, 0, &state[id]);
 }
@@ -39,10 +39,28 @@ __global__ void init_population(gene* pop, size_t pitch, int G, int S, curandSta
 	}
 }
 
+__global__ void generate_boards(int* boards, size_t pitch, curandState* state, int R) {
+	int id = blockIdx.x * blockDim.x + threadIdx.x; 
+	curandState localState = state[id];
+
+	int* board = (int*)((char*)boards + id * pitch);
+	for (int i = 0; i < R * R; i++) board[i] = 0; // first let all be 0
+	
+}
+
+__global__ void run_board(gene* pop, size_t pitch, curandState* state) {
+	// blockIdx.x is the individual out of N individuals
+	// threadIdx.x is the board out of P boards for that individual... 
+	gene* ind = (gene*)((char*)pop + blockIdx.x * pitch); 
+	// generate a board for this thread... 
+	if(blockIdx.x == 0 || blockIdx.x == 1)
+		printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
+}
+
 int main(int argc, char** argv) {
 	/* Pseudocode 
 	 * 1 - init population: N number of individuals that are made up of G 
-	 *     number of genes. 
+	 *     number of genes. --- DONE --- 
 	 * 2 - Loop generations. This cannot be in parallel, has to be sequential.
 	 *   a - Loop individuals - we can make this run in parallel, however each
 	         individual will run on several boards, which can also be in 
@@ -51,7 +69,7 @@ int main(int argc, char** argv) {
 			 Number of threads per block -> number of boards 
 		 b - We need a random board, a random position, and a random direction
 		 c - The moves of the bulldozer must be in parallel, so no parallelism
-		 d - The rotation code could be an inline function (check docs)
+		 d - The rotation code can be an inline function (check docs)
 		 e - Find the average fitness for individual by averaging fitness 
 		     values for the boards. 
 	     f - Find the average fitness of generation by averaging average 
@@ -71,6 +89,11 @@ int main(int argc, char** argv) {
 	int C = (int)pow(3, 8);				// number of combinations
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
+	int P = 128;						// number of boards for each individual
+	int M = 80;							// number of moves allowed
+	int R = 6;							// size of board
+	// generations
+	int K = 1000;						// number of generations
 	
 	gene* pop; 
 	size_t pitch;
@@ -84,11 +107,18 @@ int main(int argc, char** argv) {
 	int num_blocks = (N + block_size - 1) / block_size;
 
 	curandState* devStates;
+	curandState* board_states;
 	cudaMalloc((void**)& devStates, N * sizeof(curandState));
+	cudaMalloc((void**)& board_states, N * P * sizeof(curandState));
 
 	cudaMallocManaged(&Q, N * sizeof(int));
-	for (int i = 0; i < N; i++) Q[i] = rand() % 65536;
-	setup_pop_states<<<num_blocks, block_size>>> (devStates, Q);
+	for (int i = 0; i < N; i++) Q[i] = rand(); // % 65536;
+	setup_states<<<num_blocks, block_size>>> (devStates, Q);
+	cudaFree(Q);
+
+	cudaMallocManaged(&Q, N * P * sizeof(int));
+	for (int i = 0; i < N; i++) Q[i] = rand(); // % 65536;
+	setup_states <<<N, P >>> (board_states, Q);
 	cudaFree(Q);
 
 	// consecutive kernel calls do not require cudaDeviceSynchronize since they are queued... 
@@ -99,7 +129,23 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	
+	// we need a memory block for the boards... The size is R*R to N*P
+	int* boards;
+	size_t board_pitch;
+	cudaError_t cudaStatus = cudaMallocPitch(&boards, &board_pitch, R * R * sizeof(int), N * P);
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocPitch of boards\n");
+		return -1;
+	}
+
+	K = 1;
+	for (int i = 0; i < K; i++) {					// loop generations
+		// N number of blocks, each having P number of threads... 
+		// first generate N * P number of boards 
+		//generate_boards<<<N, P>>>(boards, board_pitch, xxx);
+		generate_boards<<<N, P>>>(boards, board_pitch, board_states, R);
+		run_board<<<N, P>>>(pop, pitch, devStates);
+	}
 	
 	return 0;
 }
