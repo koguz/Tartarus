@@ -91,7 +91,8 @@ __global__ void run_board(
 	curandState* state,
 	int R,
 	int G,
-	int M) {
+	int M,
+	int C) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -138,7 +139,40 @@ __global__ void run_board(
 			else cc += powf(3, m) * board[cx * R + cy];
 			rotate_ccw(&cd, 4);
 		}
-	}
+		int action = ind[cs * C + cc].action;
+		cs = ind[cs * C + cc].next_state;
+
+		int cx, cy, dx, dy;
+		switch (action) {
+		case 0:
+			cx = cp.x + cd.x;
+			cy = cp.y + cd.y;
+			if (cx >= 0 && cy >= 0 && cx < R && cy < R) {
+				if (board[cx * R + cy] == 0) { // nothing in front of us... move...
+					cp.x = cx; cp.y = cy;
+				}
+				else { // there is a box...
+					dx = cx + cd.x;
+					dy = cy + cd.y;
+					if (dx >= 0 && dy >= 0 && dx < R && dy < R && board[dx * R + dy] == 0) {
+						board[cx * R + cy] = 0;
+						board[dx * R + dy] = 1;
+						cp.x = cx; cp.y = cy;  // update your position
+					}
+				}
+			} // else it's a wall, we cannot do anything
+			break;
+		case 1:
+			rotate_ccw(&cd, 0.66);
+			break;
+		case 2:
+			rotate_ccw(&cd, 2);
+			break;
+		default:
+			break;
+		}
+	}  // end of moves loop
+
 	
 	// if(blockIdx.x == 0 || blockIdx.x == 1)
 		// printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
@@ -228,7 +262,7 @@ int main(int argc, char** argv) {
 		// first generate N * P number of boards 
 		//generate_boards<<<N, P>>>(boards, board_pitch, xxx);
 		generate_boards<<<N, P>>>(boards, board_pitch, devStates, R);
-		run_board<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R, G, M);
+		run_board<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R, G, M, C);
 	}
 	
 	return 0;
