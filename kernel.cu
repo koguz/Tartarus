@@ -173,6 +173,14 @@ __global__ void run_board(
 		}
 	}  // end of moves loop
 
+	// find the fitness
+	int f = 0;
+	for (int i = 0; i < R * R; i++) {
+		if (board[i] == 1) {
+			if (i % R == 0 || i % (R - 1) == 0) f++;
+			if (j % R == 0 || j % (R - 1) == 0) f++;
+		}
+	}
 	
 	// if(blockIdx.x == 0 || blockIdx.x == 1)
 		// printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
