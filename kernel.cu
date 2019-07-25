@@ -8,8 +8,6 @@
 #include <cuda.h>
 #include <curand_kernel.h>
 
-constexpr auto M_PI = 3.14159265358979323846264338327950288;
-
 typedef struct gene_struct {
 	int next_state;
 	int action; 
@@ -19,6 +17,13 @@ typedef struct position {
 	int x;
 	int y;
 } pos;
+
+__device__  void rotate_ccw(pos* c, double d) {
+	pos r;
+	r.x = (int)nearbyintf(c->x * cosf(CR_CUDART_PI / d) - c->y * sinf(CR_CUDART_PI / d));
+	r.y = (int)nearbyintf(c->x * sinf(CR_CUDART_PI / d) + c->y * cosf(CR_CUDART_PI / d));
+	c->x = r.x; c->y = r.y;
+}
 
 __global__ void setup_states(curandState* state, int* Q) {
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -84,7 +89,9 @@ __global__ void run_board(
 	int* boards, 
 	size_t board_pitch, 
 	curandState* state,
-	int R) {
+	int R,
+	int G,
+	int M) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -102,6 +109,7 @@ __global__ void run_board(
 		if (board[cp.x * R + cp.y] == 0)
 			break;
 	}
+	// get a random direction
 	pos cd; 
 	switch (curand(&localState) % 4) {
 	case 0:
@@ -116,6 +124,20 @@ __global__ void run_board(
 	default:  // case 3 and others... 
 		cd.x = -1; cd.y = 0;
 		break;
+	}
+
+	int cs = ind[G - 1].next_state;
+	for (int i = 0; i < M; i++) {  // perform M moves (default 80)
+		int cc = 0;
+		for (int m = 0; m < 8; m++) {  // m is for the 8-neighborhood
+			int cx = cp.x + cd.x; int cy = cp.y + cd.y; 
+			if (cx < 0 || cy < 0 || cx >= R || cy >= R) {
+				// then it is a wall (wall = 2)
+				cc += powf(3, m) * 2;
+			}
+			else cc += powf(3, m) * board[cx * R + cy];
+			rotate_ccw(&cd, 4);
+		}
 	}
 	
 	// if(blockIdx.x == 0 || blockIdx.x == 1)
@@ -206,7 +228,7 @@ int main(int argc, char** argv) {
 		// first generate N * P number of boards 
 		//generate_boards<<<N, P>>>(boards, board_pitch, xxx);
 		generate_boards<<<N, P>>>(boards, board_pitch, devStates, R);
-		run_board<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R);
+		run_board<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R, G, M);
 	}
 	
 	return 0;
