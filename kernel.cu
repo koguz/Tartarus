@@ -78,7 +78,13 @@ __global__ void generate_boards(int* boards, size_t pitch, curandState* state, i
 	}*/
 }
 
-__global__ void run_board(gene* pop, size_t pitch, int* boards, size_t board_pitch, curandState* state) {
+__global__ void run_board(
+	gene* pop, 
+	size_t pitch, 
+	int* boards, 
+	size_t board_pitch, 
+	curandState* state,
+	int R) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -88,7 +94,29 @@ __global__ void run_board(gene* pop, size_t pitch, int* boards, size_t board_pit
 	gene* ind = (gene*)((char*)pop + blockIdx.x * pitch); 
 	// get the board... 
 	int* board = (int*)((char*)boards + id * board_pitch);
-	
+	// find a random position on board
+	pos cp; cp.x = -1; cp.y = -1;
+	while (1) {
+		cp.x = (curand(&localState) % (R - 2)) + 1;
+		cp.y = (curand(&localState) % (R - 2)) + 1;
+		if (board[cp.x * R + cp.y] == 0)
+			break;
+	}
+	pos cd; 
+	switch (curand(&localState) % 4) {
+	case 0:
+		cd.x = 0; cd.y = -1;
+		break;
+	case 1:
+		cd.x = 0; cd.y = 1;
+		break;
+	case 2:
+		cd.x = 1; cd.y = 0;
+		break;
+	default:  // case 3 and others... 
+		cd.x = -1; cd.y = 0;
+		break;
+	}
 	
 	// if(blockIdx.x == 0 || blockIdx.x == 1)
 		// printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
@@ -178,7 +206,7 @@ int main(int argc, char** argv) {
 		// first generate N * P number of boards 
 		//generate_boards<<<N, P>>>(boards, board_pitch, xxx);
 		generate_boards<<<N, P>>>(boards, board_pitch, devStates, R);
-		run_board<<<N, P>>>(pop, pitch, boards, board_pitch, devStates);
+		run_board<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R);
 	}
 	
 	return 0;
