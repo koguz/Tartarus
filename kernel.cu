@@ -1,4 +1,3 @@
-
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
@@ -42,7 +41,7 @@ __global__ void init_population(gene* pop, size_t pitch, int G, int S, curandSta
 
 __global__ void generate_boards(int* boards, size_t pitch, curandState* state, int R) {
 	int id = blockIdx.x * blockDim.x + threadIdx.x; 
-	curandState localState = state[id];
+	curandState localState = state[blockIdx.x];
 
 	int* board = (int*)((char*)boards + id * pitch);
 	while (1) {
@@ -71,15 +70,28 @@ __global__ void generate_boards(int* boards, size_t pitch, curandState* state, i
 		}
 		if (repeat == 0) break;
 	}
+	/*if (id == 100) {   // check a board... 
+		for (int i = 0; i < 36; i++) {
+			printf("%d ", board[i]);
+			if ((i + 1) % 6 == 0) printf("\n");
+		}
+	}*/
 }
 
-__global__ void run_board(gene* pop, size_t pitch, curandState* state) {
+__global__ void run_board(gene* pop, size_t pitch, int* boards, size_t board_pitch, curandState* state) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
+	int id = blockIdx.x * blockDim.x + threadIdx.x;
+	curandState localState = state[blockIdx.x];
+
+	// get the individual
 	gene* ind = (gene*)((char*)pop + blockIdx.x * pitch); 
-	// generate a board for this thread... 
-	if(blockIdx.x == 0 || blockIdx.x == 1)
-		printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
+	// get the board... 
+	int* board = (int*)((char*)boards + id * board_pitch);
+	
+	
+	// if(blockIdx.x == 0 || blockIdx.x == 1)
+		// printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
 }
 
 int main(int argc, char** argv) {
@@ -132,18 +144,15 @@ int main(int argc, char** argv) {
 	int num_blocks = (N + block_size - 1) / block_size;
 
 	curandState* devStates;
-	curandState* board_states;
 	cudaMalloc((void**)& devStates, N * sizeof(curandState));
-	cudaMalloc((void**)& board_states, N * P * sizeof(curandState));
 
-	cudaMallocManaged(&Q, N * sizeof(int));
-	for (int i = 0; i < N; i++) Q[i] = rand(); // % 65536;
+	cudaStatus = cudaMallocManaged(&Q, N * sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (Q_1)\n");
+		return -1;
+	}
+	for (int i = 0; i < N; i++) Q[i] = rand() % 65536;
 	setup_states<<<num_blocks, block_size>>>(devStates, Q);
-	cudaFree(Q);
-
-	cudaMallocManaged(&Q, N * P * sizeof(int));
-	for (int i = 0; i < N; i++) Q[i] = rand(); // % 65536;
-	setup_states<<<N, P>>>(board_states, Q);
 	cudaFree(Q);
 
 	// consecutive kernel calls do not require cudaDeviceSynchronize since they are queued... 
@@ -168,8 +177,8 @@ int main(int argc, char** argv) {
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		//generate_boards<<<N, P>>>(boards, board_pitch, xxx);
-		generate_boards<<<N, P>>>(boards, board_pitch, board_states, R);
-		run_board<<<N, P>>>(pop, pitch, devStates);
+		generate_boards<<<N, P>>>(boards, board_pitch, devStates, R);
+		run_board<<<N, P>>>(pop, pitch, boards, board_pitch, devStates);
 	}
 	
 	return 0;
