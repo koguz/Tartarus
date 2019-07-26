@@ -175,10 +175,13 @@ __global__ void run_board(
 
 	// find the fitness
 	int f = 0;
-	for (int i = 0; i < R * R; i++) {
-		if (board[i] == 1) {
-			if (i % R == 0 || i % (R - 1) == 0) f++;
-			if (j % R == 0 || j % (R - 1) == 0) f++;
+	for (int i = 0; i < R; i++) {
+		for (int j = 0; j < R; j++) {
+			int ii = i * R + j;
+			if (board[ii] == 1) {
+				if (i % R == 0 || i % (R - 1) == 0) f++;
+				if (j % R == 0 || j % (R - 1) == 0) f++;
+			}
 		}
 	}
 	
