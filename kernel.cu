@@ -83,7 +83,12 @@ __global__ void generate_boards(int* boards, size_t pitch, curandState* state, i
 	}*/
 }
 
-__global__ void run_board(
+__global__ void average_fitness(int P, int* F) {
+	int id = blockIdx.x * blockDim.x + threadIdx.x;
+	
+}
+
+__global__ void run_boards(
 	gene* pop, 
 	size_t pitch, 
 	int* boards, 
@@ -92,7 +97,8 @@ __global__ void run_board(
 	int R,
 	int G,
 	int M,
-	int C) {
+	int C,
+	int* F) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -184,7 +190,8 @@ __global__ void run_board(
 			}
 		}
 	}
-	
+	F[id] = f;
+	// printf("%d ", F[id]);
 	// if(blockIdx.x == 0 || blockIdx.x == 1)
 		// printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
 }
@@ -221,6 +228,7 @@ int main(int argc, char** argv) {
 	int C = (int)pow(3, 8);				// number of combinations
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
+	int* F;								// fitness matrix
 	int P = 128;						// number of boards for each individual
 	int M = 80;							// number of moves allowed
 	int R = 6;							// size of board
@@ -250,6 +258,12 @@ int main(int argc, char** argv) {
 	setup_states<<<num_blocks, block_size>>>(devStates, Q);
 	cudaFree(Q);
 
+	cudaStatus = cudaMallocManaged(&F, N * P * sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (F)\n");
+		return -1;
+	}
+
 	// consecutive kernel calls do not require cudaDeviceSynchronize since they are queued... 
 	init_population<<<num_blocks, block_size>>>(pop, pitch, G, S, devStates);// , G, N);
 	cudaStatus = cudaGetLastError();
@@ -267,13 +281,15 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	K = 1;
+	K = 2;
 	for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		//generate_boards<<<N, P>>>(boards, board_pitch, xxx);
 		generate_boards<<<N, P>>>(boards, board_pitch, devStates, R);
-		run_board<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R, G, M, C);
+		run_boards<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R, G, M, C, F);
+		average_fitness<<<1, N>>>(P, F);
+
 	}
 	
 	return 0;
