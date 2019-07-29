@@ -83,7 +83,7 @@ __global__ void generate_boards(int* boards, size_t pitch, curandState* state, i
 	}*/
 }
 
-__global__ void average_fitness(int P, int* F) {
+__global__ void average_fitness(int P, int* F, float* avg_fit) {
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
 	// we get the current thread with id - it will be as many as N
 	// F is N * P, so we skip ahead P 
@@ -92,8 +92,8 @@ __global__ void average_fitness(int P, int* F) {
 	for (int i = s; i < s + P; i++) {
 		sum += F[i];
 	}
-	float av = (float)sum / (float)P;
-	printf("%f \n", av);
+	avg_fit[id] = (float)sum / (float)P;
+	// printf("%f \n", avg_fit[id]);
 }
 
 __global__ void run_boards(
@@ -215,6 +215,7 @@ int main(int argc, char** argv) {
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
 	int* F;								// fitness matrix
+	float* avg_fit;						// average fitnesses
 	int P = 128;						// number of boards for each individual
 	int M = 80;							// number of moves allowed
 	int R = 6;							// size of board
@@ -250,6 +251,12 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
+	cudaStatus = cudaMallocManaged(&avg_fit, N * sizeof(float));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (avg_fit)\n");
+		return -1;
+	}
+
 	// consecutive kernel calls do not require cudaDeviceSynchronize since they are queued... 
 	init_population<<<num_blocks, block_size>>>(pop, pitch, G, S, devStates);// , G, N);
 	cudaStatus = cudaGetLastError();
@@ -267,7 +274,7 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	K = 1;
+	K = 10;
 	for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
@@ -276,7 +283,9 @@ int main(int argc, char** argv) {
 		run_boards<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R, G, M, C, F);
 		block_size = 256;				// number of threads in a block
 		num_blocks = (N + block_size - 1) / block_size;
-		average_fitness<<<num_blocks, block_size>>>(P, F);
+		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
+		//cudaDeviceSynchronize();
+		//for (int j = 0; j < N; j++) printf("%f - ", avg_fit[22]);
 	}
 	
 	return 0;
