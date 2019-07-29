@@ -85,7 +85,15 @@ __global__ void generate_boards(int* boards, size_t pitch, curandState* state, i
 
 __global__ void average_fitness(int P, int* F) {
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
-	
+	// we get the current thread with id - it will be as many as N
+	// F is N * P, so we skip ahead P 
+	int s = id * P; 
+	int sum = 0;
+	for (int i = s; i < s + P; i++) {
+		sum += F[i];
+	}
+	float av = (float)sum / (float)P;
+	printf("%f \n", av);
 }
 
 __global__ void run_boards(
@@ -191,38 +199,16 @@ __global__ void run_boards(
 		}
 	}
 	F[id] = f;
-	// printf("%d ", F[id]);
+	// if(blockIdx.x == 0) printf("%d ", F[id]);
 	// if(blockIdx.x == 0 || blockIdx.x == 1)
 		// printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
 }
 
-int main(int argc, char** argv) {
-	/* Pseudocode 
-	 * 1 - init population: N number of individuals that are made up of G 
-	 *     number of genes. --- DONE --- 
-	 * 2 - Loop generations. This cannot be in parallel, has to be sequential.
-	 *   a - Loop individuals - we can make this run in parallel, however each
-	         individual will run on several boards, which can also be in 
-			 parallel. 
-			 Number of blocks -> number of individuals
-			 Number of threads per block -> number of boards 
-		 b - We need a random board, a random position, and a random direction
-		 c - The moves of the bulldozer must be in parallel, so no parallelism
-		 d - The rotation code can be an inline function (check docs)
-		 e - Find the average fitness for individual by averaging fitness 
-		     values for the boards. 
-	     f - Find the average fitness of generation by averaging average 
-		     fitness of each individual 
-	     g - Generating new individuals using uniform crossover. This can be in
-		     parallel. Groups of four, so we can have number of individuals / 4
-			 number of threads in as many blocks as possible. 
-	 */
-	
+int main(int argc, char** argv) {	
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
 
-	// Let's try to use cudaMallocPitch to create a two dimensional array for 
-	// the population. 
+	// various variables
 	int N = 256;						// number of individuals in population
 	int S = 4;							// number of states
 	int C = (int)pow(3, 8);				// number of combinations
@@ -281,15 +267,16 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	K = 2;
+	K = 1;
 	for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		//generate_boards<<<N, P>>>(boards, board_pitch, xxx);
 		generate_boards<<<N, P>>>(boards, board_pitch, devStates, R);
 		run_boards<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R, G, M, C, F);
-		average_fitness<<<1, N>>>(P, F);
-
+		block_size = 256;				// number of threads in a block
+		num_blocks = (N + block_size - 1) / block_size;
+		average_fitness<<<num_blocks, block_size>>>(P, F);
 	}
 	
 	return 0;
