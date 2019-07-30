@@ -30,44 +30,41 @@ __global__ void setup_states(curandState* state, int* Q) {
 	curand_init(Q[id], id, 0, &state[id]);
 }
 
-__global__ void init_population(gene* pop, size_t pitch, int G, int S, curandState* state) { 
+__global__ void init_population(gene* pop, int G, int S, curandState* state) { 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
 	curandState localState = state[id];
-
-	gene* ind = (gene*)((char*)pop + id * pitch);
-	for (int i = 0; i < G; i++) {
-		ind[i].action = curand(&localState) % 3;
-		ind[i].next_state = curand(&localState) % S; 
-		// check randomness if necessary
-		/*if (id == 200)
-			printf("(%d, %d)\n", ind[i].action, ind[i].next_state);*/
+	int s = id * G; 
+	for (int i = s; i < s + G; i++) {
+		pop[i].action = curand(&localState) % 3;
+		pop[i].next_state = curand(&localState) % S;
 	}
 }
 
-__global__ void generate_boards(int* boards, size_t pitch, curandState* state, int R) {
+__global__ void generate_boards(int* boards, curandState* state, int R) {
 	int id = blockIdx.x * blockDim.x + threadIdx.x; 
 	curandState localState = state[blockIdx.x];
 
-	int* board = (int*)((char*)boards + id * pitch);
+	int s = id * R * R; 
+	//int* board = (int*)((char*)boards + id * pitch);
 	while (1) {
-		for (int i = 0; i < R * R; i++) board[i] = 0; // first let all be 0
+		for (int i = s; i < s + (R * R); i++) boards[i] = 0; // first let all be 0
 		int i = 0;
 		do {
 			int x = (curand(&localState) % (R - 2)) + 1;
 			int y = (curand(&localState) % (R - 2)) + 1;
-			if (board[x * R + y] == 0) {
-				board[x * R + y] = 1;
+			if (boards[s + (x * R + y)] == 0) {
+				boards[s + (x * R + y)] = 1;
 				i++;
 			}
 		} while (i < 6);  // magic number 6 -> number of boxes... 
 
 		int repeat = 0;
-		for (int i = 0; i < R * R; i++) {
+		for (int i = s; i < s + (R * R); i++) {
 			if (
-				board[i] == 1 &&
-				board[i + 1] == 1 &&
-				board[i + R] == 1 &&
-				board[i + R + 1] == 1
+				boards[i] == 1 &&
+				boards[i + 1] == 1 &&
+				boards[i + R] == 1 &&
+				boards[i + R + 1] == 1
 				) {
 				repeat = 1;
 				break;
@@ -93,14 +90,12 @@ __global__ void average_fitness(int P, int* F, float* avg_fit) {
 		sum += F[i];
 	}
 	avg_fit[id] = (float)sum / (float)P;
-	// printf("%f \n", avg_fit[id]);
+	printf("%f \n", avg_fit[id]);
 }
 
 __global__ void run_boards(
 	gene* pop, 
-	size_t pitch, 
 	int* boards, 
-	size_t board_pitch, 
 	curandState* state,
 	int R,
 	int G,
@@ -110,18 +105,21 @@ __global__ void run_boards(
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
-	curandState localState = state[blockIdx.x];
+	curandState localState = state[id]; // used to be blockIdx.x
 
 	// get the individual
-	gene* ind = (gene*)((char*)pop + blockIdx.x * pitch); 
+	int ind = blockIdx.x * G; 
+	// gene* ind = (gene*)((char*)pop + blockIdx.x * pitch); 
 	// get the board... 
-	int* board = (int*)((char*)boards + id * board_pitch);
+	int brd = id * R * R; 
+	// int* board = (int*)((char*)boards + id * board_pitch);
+
 	// find a random position on board
 	pos cp; cp.x = -1; cp.y = -1;
 	while (1) {
 		cp.x = (curand(&localState) % (R - 2)) + 1;
 		cp.y = (curand(&localState) % (R - 2)) + 1;
-		if (board[cp.x * R + cp.y] == 0)
+		if (boards[brd + (cp.x * R + cp.y)] == 0)
 			break;
 	}
 	// get a random direction
@@ -141,7 +139,7 @@ __global__ void run_boards(
 		break;
 	}
 
-	int cs = ind[G - 1].next_state;
+	int cs = pop[ind + G - 1].next_state;
 	for (int i = 0; i < M; i++) {  // perform M moves (default 80)
 		int cc = 0;
 		for (int m = 0; m < 8; m++) {  // m is for the 8-neighborhood
@@ -150,11 +148,11 @@ __global__ void run_boards(
 				// then it is a wall (wall = 2)
 				cc += powf(3, m) * 2;
 			}
-			else cc += powf(3, m) * board[cx * R + cy];
+			else cc += powf(3, m) * boards[brd + (cx * R + cy)];
 			rotate_ccw(&cd, 4);
 		}
-		int action = ind[cs * C + cc].action;
-		cs = ind[cs * C + cc].next_state;
+		int action = pop[ind + (cs * C + cc)].action;
+		cs = pop[ind + (cs * C + cc)].next_state;
 
 		int cx, cy, dx, dy;
 		switch (action) {
@@ -162,15 +160,15 @@ __global__ void run_boards(
 			cx = cp.x + cd.x;
 			cy = cp.y + cd.y;
 			if (cx >= 0 && cy >= 0 && cx < R && cy < R) {
-				if (board[cx * R + cy] == 0) { // nothing in front of us... move...
+				if (boards[brd + (cx * R + cy)] == 0) { // nothing in front of us... move...
 					cp.x = cx; cp.y = cy;
 				}
 				else { // there is a box...
 					dx = cx + cd.x;
 					dy = cy + cd.y;
-					if (dx >= 0 && dy >= 0 && dx < R && dy < R && board[dx * R + dy] == 0) {
-						board[cx * R + cy] = 0;
-						board[dx * R + dy] = 1;
+					if (dx >= 0 && dy >= 0 && dx < R && dy < R && boards[brd + (dx * R + dy)] == 0) {
+						boards[brd + (cx * R + cy)] = 0;
+						boards[brd + (dx * R + dy)] = 1;
 						cp.x = cx; cp.y = cy;  // update your position
 					}
 				}
@@ -191,8 +189,8 @@ __global__ void run_boards(
 	int f = 0;
 	for (int i = 0; i < R; i++) {
 		for (int j = 0; j < R; j++) {
-			int ii = i * R + j;
-			if (board[ii] == 1) {
+			int ii = brd + (i * R + j);
+			if (boards[ii] == 1) {
 				if (i % R == 0 || i % (R - 1) == 0) f++;
 				if (j % R == 0 || j % (R - 1) == 0) f++;
 			}
@@ -209,39 +207,40 @@ int main(int argc, char** argv) {
 	srand(time(0));
 
 	// various variables
+	int K = 1000;						// number of generations
 	int N = 256;						// number of individuals in population
+	int P = 128;						// number of boards for each individual
 	int S = 4;							// number of states
 	int C = (int)pow(3, 8);				// number of combinations
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
 	int* F;								// fitness matrix
 	float* avg_fit;						// average fitnesses
-	int P = 128;						// number of boards for each individual
 	int M = 80;							// number of moves allowed
 	int R = 6;							// size of board
-	// generations
-	int K = 1000;						// number of generations
 	
 	gene* pop; 
-	size_t pitch;
-	cudaError_t cudaStatus = cudaMallocPitch(&pop, &pitch, G * sizeof(gene), N);
+	// instead of pitch, let's try managed... 
+	cudaError_t cudaStatus = cudaMallocManaged(&pop, N * G * sizeof(gene));
 	if (cudaStatus != cudaSuccess) {
 		printf("error in initialization of cudaMallocPitch\n");
 		return -1;
 	}
 	
-	int block_size = 256;				// number of threads in a block
-	int num_blocks = (N + block_size - 1) / block_size;
-
-	curandState* devStates;
-	cudaMalloc((void**)& devStates, N * sizeof(curandState));
-
-	cudaStatus = cudaMallocManaged(&Q, N * sizeof(int));
+	// random seeds for each member
+	cudaStatus = cudaMallocManaged(&Q, N * P * sizeof(int));
 	if (cudaStatus != cudaSuccess) {
 		printf("error in initialization of cudaMallocManaged (Q_1)\n");
 		return -1;
 	}
-	for (int i = 0; i < N; i++) Q[i] = rand() % 65536;
+
+	curandState* devStates;
+	cudaMalloc((void**)& devStates, N * P * sizeof(curandState));
+	
+	int block_size = 256;				// number of threads in a block
+	int num_blocks = ((N * P) + block_size - 1) / block_size;
+
+	for (int i = 0; i < N * P; i++) Q[i] = rand() % (N*P);
 	setup_states<<<num_blocks, block_size>>>(devStates, Q);
 	cudaFree(Q);
 
@@ -258,7 +257,8 @@ int main(int argc, char** argv) {
 	}
 
 	// consecutive kernel calls do not require cudaDeviceSynchronize since they are queued... 
-	init_population<<<num_blocks, block_size>>>(pop, pitch, G, S, devStates);// , G, N);
+	num_blocks = (N + block_size - 1) / block_size;
+	init_population<<<num_blocks, block_size>>>(pop, G, S, devStates);// , G, N);
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
 		printf("Error initializing kernel 'init_population'\nErr: %s\n", cudaGetErrorString(cudaStatus));
@@ -267,21 +267,20 @@ int main(int argc, char** argv) {
 
 	// we need a memory block for the boards... The size is R*R to N*P
 	int* boards;
-	size_t board_pitch;
-	cudaStatus = cudaMallocPitch(&boards, &board_pitch, R * R * sizeof(int), N * P);
+	cudaStatus = cudaMallocManaged(&boards, N * P * R * R * sizeof(int)); 
+	// cudaMallocPitch(&boards, &board_pitch, R * R * sizeof(int), N * P);
 	if (cudaStatus != cudaSuccess) {
 		printf("error in initialization of cudaMallocPitch of boards\n");
 		return -1;
 	}
 
-	K = 10;
+	K = 2;
 	for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		//generate_boards<<<N, P>>>(boards, board_pitch, xxx);
-		generate_boards<<<N, P>>>(boards, board_pitch, devStates, R);
-		run_boards<<<N, P>>>(pop, pitch, boards, board_pitch, devStates, R, G, M, C, F);
-		block_size = 256;				// number of threads in a block
+		generate_boards<<<N, P>>>(boards, devStates, R);
+		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F);
 		num_blocks = (N + block_size - 1) / block_size;
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
 		//cudaDeviceSynchronize();
