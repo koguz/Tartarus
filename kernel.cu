@@ -90,7 +90,7 @@ __global__ void average_fitness(int P, int* F, float* avg_fit) {
 		sum += F[i];
 	}
 	avg_fit[id] = (float)sum / (float)P;
-	printf("%f \n", avg_fit[id]);
+	//printf("%f \n", avg_fit[id]);
 }
 
 __global__ void run_boards(
@@ -202,6 +202,88 @@ __global__ void run_boards(
 		// printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
 }
 
+__global__ void crossover(int* idx, float* f, gene* pop, int G, int S, curandState* state) {
+	// id will be N/4, so we multiply by 4
+	int id = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
+	curandState localState = state[blockIdx.x];
+
+	int max1 = -1, idx1 = -1, max2 = -1, idx2 = -1;
+	for (int i = id; i < id + 4; i++) {
+		if (f[idx[i]] > max1 && f[idx[i]] > max2) {
+			max2 = max1;
+			idx2 = idx1;
+			max1 = f[idx[i]];
+			idx1 = idx[i];
+		} else if (f[idx[i]] > max2) {
+			max2 = f[idx[i]];
+			idx2 = idx[i];
+		}
+	}
+	int t = 0, min1 = -1, min2 = -1;
+	for (int i = id; i < id + 4; i++) {
+		if (idx[i] != idx1 && idx[i] != idx2) {
+			if (t == 0) {
+				min1 = idx[i];
+				t = 1;
+			}
+			else {
+				min2 = idx[i];
+			}
+		}
+	}
+	// max1 is the maximum, max2 is the second maximum
+	// uniform crossover using idxes and overwrite min1 and min2
+	for (int i = 0; i < G; i++) {
+		if (curand(&localState) % 2 == 0) {
+			if (curand(&localState) % 1000 == 19) {
+				pop[min1 * G + i].action = curand(&localState) % 3;
+				pop[min1 * G + i].next_state = curand(&localState) % S;
+			}
+			else {
+				pop[min1 * G + i].action = pop[max1 * G + i].action;
+				pop[min1 * G + i].next_state = pop[max1 * G + i].next_state;
+			}
+			if (curand(&localState) % 1000 == 20) {
+				pop[min2 * G + i].action = curand(&localState) % 3;
+				pop[min2 * G + i].next_state = curand(&localState) % S;
+			}
+			else {
+				pop[min2 * G + i].action = pop[max2 * G + i].action;
+				pop[min2 * G + i].next_state = pop[max2 * G + i].next_state;
+			}
+		}
+		else {
+			if (curand(&localState) % 1000 == 21) {
+				pop[min1 * G + i].action = curand(&localState) % 3;
+				pop[min1 * G + i].next_state = curand(&localState) % S;
+			}
+			else {
+				pop[min1 * G + i].action = pop[max2 * G + i].action;
+				pop[min1 * G + i].next_state = pop[max2 * G + i].next_state;
+			}
+			if (curand(&localState) % 1000 == 22) {
+				pop[min2 * G + i].action = curand(&localState) % 3;
+				pop[min2 * G + i].next_state = curand(&localState) % S;
+			}
+			else {
+				pop[min2 * G + i].action = pop[max1 * G + i].action;
+				pop[min2 * G + i].next_state = pop[max1 * G + i].next_state;
+			}
+		}
+	}
+}
+
+void shuffle(int* arr, int S) {
+	int i;
+	for (i = 0; i < S; i++) arr[i] = i;
+	for (i = S - 1; i > 0; i--) {
+		int r = rand() % i;
+		int t = arr[i];
+		arr[i] = arr[r];
+		arr[r] = t;
+	}
+}
+
 int main(int argc, char** argv) {	
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
@@ -218,7 +300,8 @@ int main(int argc, char** argv) {
 	float* avg_fit;						// average fitnesses
 	int M = 80;							// number of moves allowed
 	int R = 6;							// size of board
-	
+	int* idx;
+
 	gene* pop; 
 	// instead of pitch, let's try managed... 
 	cudaError_t cudaStatus = cudaMallocManaged(&pop, N * G * sizeof(gene));
@@ -240,7 +323,7 @@ int main(int argc, char** argv) {
 	int block_size = 256;				// number of threads in a block
 	int num_blocks = ((N * P) + block_size - 1) / block_size;
 
-	for (int i = 0; i < N * P; i++) Q[i] = rand() % (N*P);
+	for (int i = 0; i < N * P; i++) Q[i] = rand() % 65536; // > (N * P);
 	setup_states<<<num_blocks, block_size>>>(devStates, Q);
 	cudaFree(Q);
 
@@ -253,6 +336,12 @@ int main(int argc, char** argv) {
 	cudaStatus = cudaMallocManaged(&avg_fit, N * sizeof(float));
 	if (cudaStatus != cudaSuccess) {
 		printf("error in initialization of cudaMallocManaged (avg_fit)\n");
+		return -1;
+	}
+
+	cudaStatus = cudaMallocManaged(&idx, N * sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (idx)\n");
 		return -1;
 	}
 
@@ -274,7 +363,6 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	K = 2;
 	for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
@@ -283,8 +371,26 @@ int main(int argc, char** argv) {
 		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F);
 		num_blocks = (N + block_size - 1) / block_size;
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
-		//cudaDeviceSynchronize();
-		//for (int j = 0; j < N; j++) printf("%f - ", avg_fit[22]);
+		float gen_fitness = 0.0f;
+		cudaDeviceSynchronize();
+		for (int j = 0; j < N; j++) gen_fitness += avg_fit[j];
+		printf("generation fitness: %f\n", gen_fitness / (float)N);
+
+		// add mutation adaptation here
+
+		// moving on to crossover...
+		// shuffle... 
+		shuffle(idx, N);
+		int original_block_size = block_size;
+		if (N/4 <= block_size) {
+			// 1 block yeterli... 
+			num_blocks = 1; block_size = N / 4;
+		}
+		else {
+			num_blocks = ((N / 4) + block_size - 1) / block_size;
+		}
+		crossover<<<num_blocks, block_size>>>(idx, avg_fit, pop, G, S, devStates);
+		block_size = original_block_size;
 	}
 	
 	return 0;
