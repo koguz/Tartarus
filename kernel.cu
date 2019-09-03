@@ -27,7 +27,7 @@ __device__  void rotate_ccw(pos* c, double d) {
 
 __global__ void setup_states(curandState* state, int* Q) {
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
-	curand_init(Q[id], id, 0, &state[id]);
+	curand_init(Q[id], 0, 0, &state[id]);
 }
 
 __global__ void init_population(gene* pop, int G, int S, curandState* state) { 
@@ -38,11 +38,13 @@ __global__ void init_population(gene* pop, int G, int S, curandState* state) {
 		pop[i].action = curand(&localState) % 3;
 		pop[i].next_state = curand(&localState) % S;
 	}
+	state[id] = localState;
 }
 
 __global__ void generate_boards(int* boards, curandState* state, int R) {
 	int id = blockIdx.x * blockDim.x + threadIdx.x; 
-	curandState localState = state[blockIdx.x];
+	// curandState localState = state[blockIdx.x];
+	curandState localState = state[id];
 
 	int s = id * R * R; 
 	//int* board = (int*)((char*)boards + id * pitch);
@@ -72,6 +74,7 @@ __global__ void generate_boards(int* boards, curandState* state, int R) {
 		}
 		if (repeat == 0) break;
 	}
+	state[id] = localState;
 	/*if (id == 100) {   // check a board... 
 		for (int i = 0; i < 36; i++) {
 			printf("%d ", board[i]);
@@ -197,6 +200,7 @@ __global__ void run_boards(
 		}
 	}
 	F[id] = f;
+	state[id] = localState;
 	// if(blockIdx.x == 0) printf("%d ", F[id]);
 	// if(blockIdx.x == 0 || blockIdx.x == 1)
 		// printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
@@ -205,9 +209,11 @@ __global__ void run_boards(
 __global__ void crossover(int* idx, float* f, gene* pop, int G, int S, curandState* state) {
 	// id will be N/4, so we multiply by 4
 	int id = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
-	curandState localState = state[blockIdx.x];
+	// curandState localState = state[blockIdx.x];
+	curandState localState = state[id];
 
-	int max1 = -1, idx1 = -1, max2 = -1, idx2 = -1;
+	float max1 = -1.0f, max2 = -1.0f;
+	int idx1 = -1, idx2 = -1;
 	for (int i = id; i < id + 4; i++) {
 		if (f[idx[i]] > max1 && f[idx[i]] > max2) {
 			max2 = max1;
@@ -231,46 +237,48 @@ __global__ void crossover(int* idx, float* f, gene* pop, int G, int S, curandSta
 			}
 		}
 	}
-	// max1 is the maximum, max2 is the second maximum
+	// idx1 is the maximum, idx2 is the second maximum
 	// uniform crossover using idxes and overwrite min1 and min2
+	int X = 1000;
 	for (int i = 0; i < G; i++) {
 		if (curand(&localState) % 2 == 0) {
-			if (curand(&localState) % 1000 == 19) {
+			if (curand(&localState) % X == 19) {
 				pop[min1 * G + i].action = curand(&localState) % 3;
 				pop[min1 * G + i].next_state = curand(&localState) % S;
 			}
 			else {
-				pop[min1 * G + i].action = pop[max1 * G + i].action;
-				pop[min1 * G + i].next_state = pop[max1 * G + i].next_state;
+				pop[min1 * G + i].action = pop[idx1 * G + i].action;
+				pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
 			}
-			if (curand(&localState) % 1000 == 20) {
+			if (curand(&localState) % X == 20) {
 				pop[min2 * G + i].action = curand(&localState) % 3;
 				pop[min2 * G + i].next_state = curand(&localState) % S;
 			}
 			else {
-				pop[min2 * G + i].action = pop[max2 * G + i].action;
-				pop[min2 * G + i].next_state = pop[max2 * G + i].next_state;
+				pop[min2 * G + i].action = pop[idx2 * G + i].action;
+				pop[min2 * G + i].next_state = pop[idx2 * G + i].next_state;
 			}
 		}
 		else {
-			if (curand(&localState) % 1000 == 21) {
+			if (curand(&localState) % X == 21) {
 				pop[min1 * G + i].action = curand(&localState) % 3;
 				pop[min1 * G + i].next_state = curand(&localState) % S;
 			}
 			else {
-				pop[min1 * G + i].action = pop[max2 * G + i].action;
-				pop[min1 * G + i].next_state = pop[max2 * G + i].next_state;
+				pop[min1 * G + i].action = pop[idx2 * G + i].action;
+				pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
 			}
-			if (curand(&localState) % 1000 == 22) {
+			if (curand(&localState) % X == 22) {
 				pop[min2 * G + i].action = curand(&localState) % 3;
 				pop[min2 * G + i].next_state = curand(&localState) % S;
 			}
 			else {
-				pop[min2 * G + i].action = pop[max1 * G + i].action;
-				pop[min2 * G + i].next_state = pop[max1 * G + i].next_state;
+				pop[min2 * G + i].action = pop[idx1 * G + i].action;
+				pop[min2 * G + i].next_state = pop[idx1 * G + i].next_state;
 			}
 		}
 	}
+	state[id] = localState;
 }
 
 void shuffle(int* arr, int S) {
@@ -289,8 +297,9 @@ int main(int argc, char** argv) {
 	srand(time(0));
 
 	// various variables
+	int block_size = 256;				// number of threads in a block
 	int K = 1000;						// number of generations
-	int N = 256;						// number of individuals in population
+	int N = block_size * 2;				// number of individuals in population
 	int P = 128;						// number of boards for each individual
 	int S = 4;							// number of states
 	int C = (int)pow(3, 8);				// number of combinations
@@ -310,20 +319,18 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 	
-	// random seeds for each member
+	// random seeds for each board of each individual
 	cudaStatus = cudaMallocManaged(&Q, N * P * sizeof(int));
 	if (cudaStatus != cudaSuccess) {
 		printf("error in initialization of cudaMallocManaged (Q_1)\n");
 		return -1;
 	}
+	for (int i = 0; i < N * P; i++) Q[i] = rand() % INT_MAX;
 
 	curandState* devStates;
 	cudaMalloc((void**)& devStates, N * P * sizeof(curandState));
 	
-	int block_size = 256;				// number of threads in a block
 	int num_blocks = ((N * P) + block_size - 1) / block_size;
-
-	for (int i = 0; i < N * P; i++) Q[i] = rand() % 65536; // > (N * P);
 	setup_states<<<num_blocks, block_size>>>(devStates, Q);
 	cudaFree(Q);
 
@@ -347,7 +354,7 @@ int main(int argc, char** argv) {
 
 	// consecutive kernel calls do not require cudaDeviceSynchronize since they are queued... 
 	num_blocks = (N + block_size - 1) / block_size;
-	init_population<<<num_blocks, block_size>>>(pop, G, S, devStates);// , G, N);
+	init_population<<<num_blocks, block_size>>>(pop, G, S, devStates);
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
 		printf("Error initializing kernel 'init_population'\nErr: %s\n", cudaGetErrorString(cudaStatus));
@@ -366,7 +373,6 @@ int main(int argc, char** argv) {
 	for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
-		//generate_boards<<<N, P>>>(boards, board_pitch, xxx);
 		generate_boards<<<N, P>>>(boards, devStates, R);
 		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F);
 		num_blocks = (N + block_size - 1) / block_size;
