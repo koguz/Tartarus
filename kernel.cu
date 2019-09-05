@@ -311,6 +311,10 @@ int main(int argc, char** argv) {
 	int R = 6;							// size of board
 	int* idx;
 
+	char fname[50];
+	sprintf(fname, "r-%d-%d.txt", S, 4);
+	FILE* results = fopen(fname, "w");
+
 	gene* pop; 
 	// instead of pitch, let's try managed... 
 	cudaError_t cudaStatus = cudaMallocManaged(&pop, N * G * sizeof(gene));
@@ -380,7 +384,8 @@ int main(int argc, char** argv) {
 		float gen_fitness = 0.0f;
 		cudaDeviceSynchronize();
 		for (int j = 0; j < N; j++) gen_fitness += avg_fit[j];
-		printf("generation fitness: %f\n", gen_fitness / (float)N);
+		printf("%0.2f ", gen_fitness / (float)N);
+		fprintf(results, "%0.2f ", gen_fitness / (float)N);
 
 		// add mutation adaptation here
 
