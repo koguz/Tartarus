@@ -299,7 +299,7 @@ int main(int argc, char** argv) {
 	// various variables
 	int block_size = 256;				// number of threads in a block
 	int K = 1000;						// number of generations
-	int N = block_size * 2;				// number of individuals in population
+	int N = block_size * 4;				// number of individuals in population
 	int P = 128;						// number of boards for each individual
 	int S = 12;							// number of states
 	int C = (int)pow(3, 8);				// number of combinations
@@ -312,7 +312,7 @@ int main(int argc, char** argv) {
 	int* idx;
 
 	char fname[50];
-	sprintf(fname, "r-%d-%d.txt", S, 4);
+	sprintf(fname, "r-%d-%d-%d.txt", N, S, 1);
 	FILE* results = fopen(fname, "w");
 
 	gene* pop; 
