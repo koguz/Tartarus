@@ -301,7 +301,7 @@ int main(int argc, char** argv) {
 	int K = 1000;						// number of generations
 	int N = block_size * 4;				// number of individuals in population
 	int P = 128;						// number of boards for each individual
-	int S = 12;							// number of states
+	int S = 10;							// number of states
 	int C = (int)pow(3, 8);				// number of combinations
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
@@ -312,7 +312,7 @@ int main(int argc, char** argv) {
 	int* idx;
 
 	char fname[50];
-	sprintf(fname, "r-%d-%d-%d.txt", N, S, 4);
+	sprintf(fname, "r-%d-%d-%d.txt", N, S, 8);
 	FILE* results = fopen(fname, "w");
 
 	gene* pop; 
@@ -373,6 +373,8 @@ int main(int argc, char** argv) {
 		printf("error in initialization of cudaMallocPitch of boards\n");
 		return -1;
 	}
+	
+	float topfit = 0.0f;
 
 	for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
@@ -383,9 +385,13 @@ int main(int argc, char** argv) {
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
 		float gen_fitness = 0.0f;
 		cudaDeviceSynchronize();
-		for (int j = 0; j < N; j++) gen_fitness += avg_fit[j];
-		printf("%0.2f ", gen_fitness / (float)N);
-		fprintf(results, "%0.2f ", gen_fitness / (float)N);
+		for (int j = 0; j < N; j++) {
+			gen_fitness += avg_fit[j];
+			if (topfit < avg_fit[j]) 
+				topfit = avg_fit[j];
+		}
+		printf("--%04d-- %0.4f (%0.4f) ", i, gen_fitness / (float)N, topfit);
+		fprintf(results, "%0.4f  (%0.4f) ", gen_fitness / (float)N, topfit);
 
 		// add mutation adaptation here
 
@@ -403,6 +409,6 @@ int main(int argc, char** argv) {
 		crossover<<<num_blocks, block_size>>>(idx, avg_fit, pop, G, S, devStates);
 		block_size = original_block_size;
 	}
-	
+	printf("BEST: %0.4f ", topfit);
 	return 0;
 }
