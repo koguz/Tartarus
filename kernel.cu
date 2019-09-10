@@ -301,7 +301,7 @@ int main(int argc, char** argv) {
 	int K = 1000;						// number of generations
 	int N = block_size * 4;				// number of individuals in population
 	int P = 128;						// number of boards for each individual
-	int S = 10;							// number of states
+	int S = 12;							// number of states
 	int C = (int)pow(3, 8);				// number of combinations
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
@@ -312,7 +312,7 @@ int main(int argc, char** argv) {
 	int* idx;
 
 	char fname[50];
-	sprintf(fname, "r-%d-%d-%d.txt", N, S, 1);
+	sprintf(fname, "r-%d-%d-%d.txt", N, S, 4);
 	FILE* results = fopen(fname, "w");
 
 	gene* pop; 
