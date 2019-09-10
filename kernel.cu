@@ -312,7 +312,7 @@ int main(int argc, char** argv) {
 	int* idx;
 
 	char fname[50];
-	sprintf(fname, "r-%d-%d-%d.txt", N, S, 8);
+	sprintf(fname, "r-%d-%d-%d.txt", N, S, 10);
 	FILE* results = fopen(fname, "w");
 
 	gene* pop; 
@@ -390,8 +390,8 @@ int main(int argc, char** argv) {
 			if (topfit < avg_fit[j]) 
 				topfit = avg_fit[j];
 		}
-		printf("--%04d-- %0.4f (%0.4f) ", i, gen_fitness / (float)N, topfit);
-		fprintf(results, "%0.4f  (%0.4f) ", gen_fitness / (float)N, topfit);
+		printf("%0.2f ", gen_fitness / (float)N);
+		fprintf(results, "%0.2f ", gen_fitness / (float)N);
 
 		// add mutation adaptation here
 
@@ -410,5 +410,6 @@ int main(int argc, char** argv) {
 		block_size = original_block_size;
 	}
 	printf("BEST: %0.4f ", topfit);
+	fprintf(results, "\n\nBEST%0.4f", topfit);
 	return 0;
 }
