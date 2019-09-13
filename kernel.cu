@@ -293,12 +293,13 @@ void shuffle(int* arr, int S) {
 }
 
 int main(int argc, char** argv) {	
+	// argv[1] = "1"; argv[2] = "4"; argv[3] = "10";
 	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
 
 	// various variables
-	bool writeToFile = false;			// write to file
+	bool writeToFile = true;			// write to file
 	int block_size = 256;				// number of threads in a block
 	int K = 1000;						// number of generations
 	int N = block_size * atoi(argv[1]);	// number of individuals in population
@@ -315,12 +316,15 @@ int main(int argc, char** argv) {
 	int* idx;
 
 	char fname[50];
+	char bname[60];
 	sprintf(fname, "r-%d-%d-%d.txt", N, S, L);
-	FILE *results, *rsltall; 
+	sprintf(bname, "BEST-%s", fname);
+	FILE *results, *rsltall, *bestf; 
 	
 	if (writeToFile) {
 		results = fopen(fname, "w");
 		rsltall = fopen("results.csv", "a");
+		bestf = fopen(bname, "w");
 	}
 
 	gene* pop; 
@@ -401,16 +405,18 @@ int main(int argc, char** argv) {
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
 		float gen_fitness = 0.0f;
 		cudaDeviceSynchronize();
-		int tj = 0;
 		for (int j = 0; j < N; j++) {
 			gen_fitness += avg_fit[j];
 			if (topfit < avg_fit[j]) {
 				topfit = avg_fit[j];
-				tj = j;
+				int k = 0;
+				for (int tj = j * G; tj < (j + 1) * G; tj++) {
+					best[k].action = pop[tj].action;
+					best[k].next_state = pop[tj].next_state;
+					k++;
+				}
 			}
 		}
-
-		//for(int j=)
 
 		gen_fitness = gen_fitness / (float)N;
 		if (topgenfit < gen_fitness)
@@ -440,12 +446,17 @@ int main(int argc, char** argv) {
 	// fprintf(results, "\n\nBEST IND %0.4f\nBEST GEN %0.4f", topfit);
 	dur = time(0) - dur;
 	printf("%d seconds\n", dur);
-
+	cudaDeviceSynchronize();
 	if (writeToFile)
 	{
 		fprintf(rsltall, "%d,%d,%d,%0.4f,%0.4f,%d\n", N, S, L, topgenfit, topfit, dur);
+		for (int i = 0; i < G; i++) {
+			fprintf(bestf, "%d %d ", best[i].action, best[i].next_state);
+			// printf("%d %d ", best[i].action, best[i].next_state);
+		}
 		fclose(results);
 		fclose(rsltall);
+		fclose(bestf);
 	}
 
 	return 0;
