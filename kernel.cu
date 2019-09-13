@@ -298,6 +298,7 @@ int main(int argc, char** argv) {
 	srand(time(0));
 
 	// various variables
+	bool writeToFile = false;			// write to file
 	int block_size = 256;				// number of threads in a block
 	int K = 1000;						// number of generations
 	int N = block_size * atoi(argv[1]);	// number of individuals in population
@@ -315,17 +316,28 @@ int main(int argc, char** argv) {
 
 	char fname[50];
 	sprintf(fname, "r-%d-%d-%d.txt", N, S, L);
-	FILE* results = fopen(fname, "w");
-	FILE* rsltall = fopen("results.csv", "a");
+	FILE *results, *rsltall; 
+	
+	if (writeToFile) {
+		results = fopen(fname, "w");
+		rsltall = fopen("results.csv", "a");
+	}
 
 	gene* pop; 
 	// instead of pitch, let's try managed... 
 	cudaError_t cudaStatus = cudaMallocManaged(&pop, N * G * sizeof(gene));
 	if (cudaStatus != cudaSuccess) {
-		printf("error in initialization of cudaMallocPitch\n");
+		printf("error in initialization of cudaMallocManaged (pop)\n");
 		return -1;
 	}
 	
+	gene* best;
+	cudaStatus = cudaMallocManaged(&best, G * sizeof(gene));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (best)\n");
+		return -1;
+	}
+
 	// random seeds for each board of each individual
 	cudaStatus = cudaMallocManaged(&Q, N * P * sizeof(int));
 	if (cudaStatus != cudaSuccess) {
@@ -389,17 +401,23 @@ int main(int argc, char** argv) {
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
 		float gen_fitness = 0.0f;
 		cudaDeviceSynchronize();
+		int tj = 0;
 		for (int j = 0; j < N; j++) {
 			gen_fitness += avg_fit[j];
-			if (topfit < avg_fit[j]) 
+			if (topfit < avg_fit[j]) {
 				topfit = avg_fit[j];
+				tj = j;
+			}
 		}
+
+		//for(int j=)
+
 		gen_fitness = gen_fitness / (float)N;
 		if (topgenfit < gen_fitness)
 			topgenfit = gen_fitness;
 		// printf("%0.2f ", gen_fitness);
 		printf(".");
-		fprintf(results, "%0.2f ", gen_fitness);
+		if(writeToFile) fprintf(results, "%0.2f ", gen_fitness);
 
 		// add mutation adaptation here
 
@@ -423,9 +441,12 @@ int main(int argc, char** argv) {
 	dur = time(0) - dur;
 	printf("%d seconds\n", dur);
 
-	fprintf(rsltall, "%d,%d,%d,%0.4f,%0.4f,%d\n", N, S, L, topgenfit, topfit, dur);
+	if (writeToFile)
+	{
+		fprintf(rsltall, "%d,%d,%d,%0.4f,%0.4f,%d\n", N, S, L, topgenfit, topfit, dur);
+		fclose(results);
+		fclose(rsltall);
+	}
 
-	fclose(results);
-	fclose(rsltall);
 	return 0;
 }
