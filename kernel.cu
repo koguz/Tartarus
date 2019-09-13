@@ -293,16 +293,17 @@ void shuffle(int* arr, int S) {
 }
 
 int main(int argc, char** argv) {	
+	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
-	// argv'leri ayarla - sureyi kaydet
-	// argv: N, S 
+
 	// various variables
 	int block_size = 256;				// number of threads in a block
 	int K = 1000;						// number of generations
-	int N = block_size * 8;				// number of individuals in population
+	int N = block_size * atoi(argv[1]);	// number of individuals in population
 	int P = 128;						// number of boards for each individual
-	int S = 12;							// number of states
+	int S = atoi(argv[2]);				// number of states
+	int L = atoi(argv[3]);				// run no
 	int C = (int)pow(3, 8);				// number of combinations
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
@@ -313,8 +314,9 @@ int main(int argc, char** argv) {
 	int* idx;
 
 	char fname[50];
-	sprintf(fname, "r-%d-%d-%d.txt", N, S, 1);
+	sprintf(fname, "r-%d-%d-%d.txt", N, S, L);
 	FILE* results = fopen(fname, "w");
+	FILE* rsltall = fopen("results.csv", "a");
 
 	gene* pop; 
 	// instead of pitch, let's try managed... 
@@ -376,6 +378,7 @@ int main(int argc, char** argv) {
 	}
 	
 	float topfit = 0.0f;
+	float topgenfit = 0.0f;
 
 	for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
@@ -391,8 +394,12 @@ int main(int argc, char** argv) {
 			if (topfit < avg_fit[j]) 
 				topfit = avg_fit[j];
 		}
-		printf("%0.2f ", gen_fitness / (float)N);
-		fprintf(results, "%0.2f ", gen_fitness / (float)N);
+		gen_fitness = gen_fitness / (float)N;
+		if (topgenfit < gen_fitness)
+			topgenfit = gen_fitness;
+		// printf("%0.2f ", gen_fitness);
+		printf(".");
+		fprintf(results, "%0.2f ", gen_fitness);
 
 		// add mutation adaptation here
 
@@ -410,7 +417,15 @@ int main(int argc, char** argv) {
 		crossover<<<num_blocks, block_size>>>(idx, avg_fit, pop, G, S, devStates);
 		block_size = original_block_size;
 	}
-	printf("BEST: %0.4f ", topfit);
-	fprintf(results, "\n\nBEST %0.4f", topfit);
+	printf("BEST INDIVIDUAL: %0.4f ", topfit);
+	printf("BEST GEN FIT: %0.4f ", topgenfit);
+	// fprintf(results, "\n\nBEST IND %0.4f\nBEST GEN %0.4f", topfit);
+	dur = time(0) - dur;
+	printf("%d seconds\n", dur);
+
+	fprintf(rsltall, "%d,%d,%d,%0.4f,%0.4f,%d\n", N, S, L, topgenfit, topfit, dur);
+
+	fclose(results);
+	fclose(rsltall);
 	return 0;
 }
