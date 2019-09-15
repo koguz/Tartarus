@@ -400,6 +400,14 @@ int main(int argc, char** argv) {
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		generate_boards<<<N, P>>>(boards, devStates, R);
+/*		cudaDeviceSynchronize();
+		for (int j = 0; j < N * P; j++) {
+			for (int k = 0; k < 36; k++) {
+				printf("%d ", boards[j * 36 + k]);
+			}
+			printf("\n");
+		}
+		return 0;*/
 		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F);
 		num_blocks = (N + block_size - 1) / block_size;
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
