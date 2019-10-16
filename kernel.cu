@@ -99,7 +99,8 @@ __global__ void run_boards(
 	int M,
 	int C,
 	int* F,
-	int* statistics) {
+	int* statistics,
+	int* occurences) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -140,18 +141,23 @@ __global__ void run_boards(
 	int cs = pop[ind + G - 1].next_state;
 	for (int i = 0; i < M; i++) {  // perform M moves (default 80)
 		int cc = 0;
+		int occ = 0;
 		for (int m = 0; m < 8; m++) {  // m is for the 8-neighborhood
 			int cx = cp.x + cd.x; int cy = cp.y + cd.y; 
 			if (cx < 0 || cy < 0 || cx >= R || cy >= R) {
 				// then it is a wall (wall = 2)
 				cc += powf(3, m) * 2;
 			}
-			else cc += powf(3, m) * boards[brd + (cx * R + cy)];
+			else {
+				cc += powf(3, m) * boards[brd + (cx * R + cy)];
+				occ += boards[brd + (cx * R + cy)];
+			}
 			rotate_ccw(&cd, 4);
 		}
 		int action = pop[ind + (cs * C + cc)].action;
 		cs = pop[ind + (cs * C + cc)].next_state;
 		statistics[blockIdx.x * C + cc]++;
+		occurences[blockIdx.x * 7 + occ]++;
 
 		int cx, cy, dx, dy;
 		switch (action) {
@@ -286,7 +292,7 @@ void shuffle(int* arr, int S) {
 }
 
 int main(int argc, char** argv) {	
-	argv[1] = "1"; argv[2] = "4"; argv[3] = "10";
+	argv[1] = "8"; argv[2] = "16"; argv[3] = "10";
 	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
@@ -394,6 +400,15 @@ int main(int argc, char** argv) {
 	}
 	cudaDeviceSynchronize();
 	for (int i = 0; i < N * C; i++) statistics[i] = 0;
+
+	int* occurrences; 
+	cudaStatus = cudaMallocManaged(&occurrences, N * 7 * sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (occurrences) ");
+		return -1;
+	}
+	cudaDeviceSynchronize();
+	for (int i = 0; i < N * 7; i++) occurrences[i] = 0;
 	
 	float topfit = 0.0f;
 	float topgenfit = 0.0f;
@@ -402,7 +417,7 @@ int main(int argc, char** argv) {
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		generate_boards<<<N, P>>>(boards, devStates, R);
-		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, statistics);
+		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, statistics, occurrences);
 		num_blocks = (N + block_size - 1) / block_size;
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
 		float gen_fitness = 0.0f;
@@ -467,6 +482,19 @@ int main(int argc, char** argv) {
 		for (int i = 0; i < C; i++) {
 			fprintf(statf, "%d ", final_statistics[i]);
 		}
+
+		fprintf(statf, "\n");
+		int* final_occurences = (int*)malloc(7 * sizeof(int));
+		for (int i = 0; i < 7; i++) final_occurences[i] = 0;
+		for (int i = 0; i < N; i++) {
+			for (int j = 0; j < 7; j++) {
+				final_occurences[j] += occurrences[i * 7 + j];
+			}
+		}
+		for (int i = 0; i < 7; i++) {
+			fprintf(statf, "%d ", final_occurences[i]);
+		}
+
 
 		fclose(results);
 		fclose(rsltall);
