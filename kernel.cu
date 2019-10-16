@@ -98,7 +98,8 @@ __global__ void run_boards(
 	int G,
 	int M,
 	int C,
-	int* F) {
+	int* F,
+	int* statistics) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -150,6 +151,7 @@ __global__ void run_boards(
 		}
 		int action = pop[ind + (cs * C + cc)].action;
 		cs = pop[ind + (cs * C + cc)].next_state;
+		statistics[blockIdx.x * C + cc]++;
 
 		int cx, cy, dx, dy;
 		switch (action) {
@@ -310,12 +312,13 @@ int main(int argc, char** argv) {
 	char bname[60];
 	sprintf(fname, "r-%d-%d-%d.txt", N, S, L);
 	sprintf(bname, "BEST-%s", fname);
-	FILE *results, *rsltall, *bestf; 
+	FILE* results, * rsltall, * bestf, * statf;
 	
 	if (writeToFile) {
 		results = fopen(fname, "w");
 		rsltall = fopen("results.csv", "a");
 		bestf = fopen(bname, "w");
+		statf = fopen("statistics.txt", "w");
 	}
 
 	gene* pop; 
@@ -379,9 +382,18 @@ int main(int argc, char** argv) {
 	int* boards;
 	cudaStatus = cudaMallocManaged(&boards, N * P * R * R * sizeof(int)); 
 	if (cudaStatus != cudaSuccess) {
-		printf("error in initialization of cudaMallocPitch of boards\n");
+		printf("error in initialization of cudaMallocManaged of boards\n");
 		return -1;
 	}
+
+	int* statistics; 
+	cudaStatus = cudaMallocManaged(&statistics, N * C * sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (statistics) ");
+		return -1;
+	}
+	cudaDeviceSynchronize();
+	for (int i = 0; i < N * C; i++) statistics[i] = 0;
 	
 	float topfit = 0.0f;
 	float topgenfit = 0.0f;
@@ -390,7 +402,7 @@ int main(int argc, char** argv) {
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		generate_boards<<<N, P>>>(boards, devStates, R);
-		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F);
+		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, statistics);
 		num_blocks = (N + block_size - 1) / block_size;
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
 		float gen_fitness = 0.0f;
@@ -444,9 +456,22 @@ int main(int argc, char** argv) {
 			fprintf(bestf, "%d %d ", best[i].action, best[i].next_state);
 			// printf("%d %d ", best[i].action, best[i].next_state);
 		}
+
+		int* final_statistics = (int*)malloc(C * sizeof(int));
+		for (int i = 0; i < C; i++) final_statistics[i] = 0;
+		for (int i = 0; i < N; i++) {
+			for (int j = 0; j < C; j++) {
+				final_statistics[j] += statistics[i * C + j];
+			}
+		}
+		for (int i = 0; i < C; i++) {
+			fprintf(statf, "%d ", final_statistics[i]);
+		}
+
 		fclose(results);
 		fclose(rsltall);
 		fclose(bestf);
+		fclose(statf);
 	}
 
 	return 0;
