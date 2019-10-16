@@ -75,12 +75,6 @@ __global__ void generate_boards(int* boards, curandState* state, int R) {
 		if (repeat == 0) break;
 	}
 	state[id] = localState;
-	/*if (id == 100) {   // check a board... 
-		for (int i = 0; i < 36; i++) {
-			printf("%d ", board[i]);
-			if ((i + 1) % 6 == 0) printf("\n");
-		}
-	}*/
 }
 
 __global__ void average_fitness(int P, int* F, float* avg_fit) {
@@ -201,9 +195,6 @@ __global__ void run_boards(
 	}
 	F[id] = f;
 	state[id] = localState;
-	// if(blockIdx.x == 0) printf("%d ", F[id]);
-	// if(blockIdx.x == 0 || blockIdx.x == 1)
-		// printf("blockIdx: %d, threadIdx: %d\n", blockIdx.x, threadIdx.x); 
 }
 
 __global__ void crossover(int* idx, float* f, gene* pop, int G, int S, curandState* state) {
@@ -293,7 +284,7 @@ void shuffle(int* arr, int S) {
 }
 
 int main(int argc, char** argv) {	
-	// argv[1] = "1"; argv[2] = "4"; argv[3] = "10";
+	argv[1] = "1"; argv[2] = "4"; argv[3] = "10";
 	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
@@ -387,7 +378,6 @@ int main(int argc, char** argv) {
 	// we need a memory block for the boards... The size is R*R to N*P
 	int* boards;
 	cudaStatus = cudaMallocManaged(&boards, N * P * R * R * sizeof(int)); 
-	// cudaMallocPitch(&boards, &board_pitch, R * R * sizeof(int), N * P);
 	if (cudaStatus != cudaSuccess) {
 		printf("error in initialization of cudaMallocPitch of boards\n");
 		return -1;
@@ -400,14 +390,6 @@ int main(int argc, char** argv) {
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		generate_boards<<<N, P>>>(boards, devStates, R);
-/*		cudaDeviceSynchronize();
-		for (int j = 0; j < N * P; j++) {
-			for (int k = 0; k < 36; k++) {
-				printf("%d ", boards[j * 36 + k]);
-			}
-			printf("\n");
-		}
-		return 0;*/
 		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F);
 		num_blocks = (N + block_size - 1) / block_size;
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
