@@ -292,7 +292,7 @@ void shuffle(int* arr, int S) {
 }
 
 int main(int argc, char** argv) {	
-	argv[1] = "8"; argv[2] = "16"; argv[3] = "10";
+	argv[1] = "4"; argv[2] = "4"; argv[3] = "11";
 	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
@@ -316,15 +316,17 @@ int main(int argc, char** argv) {
 
 	char fname[50];
 	char bname[60];
+	char sname[50];
 	sprintf(fname, "r-%d-%d-%d.txt", N, S, L);
 	sprintf(bname, "BEST-%s", fname);
+	sprintf(sname, "s-%d-%d-%d.txt", N, S, L);
 	FILE* results, * rsltall, * bestf, * statf;
 	
 	if (writeToFile) {
 		results = fopen(fname, "w");
 		rsltall = fopen("results.csv", "a");
 		bestf = fopen(bname, "w");
-		statf = fopen("statistics.txt", "w");
+		statf = fopen(sname, "w");
 	}
 
 	gene* pop; 
@@ -483,7 +485,7 @@ int main(int argc, char** argv) {
 			fprintf(statf, "%d ", final_statistics[i]);
 		}
 
-		fprintf(statf, "\n");
+		/*fprintf(statf, "\n");
 		int* final_occurences = (int*)malloc(7 * sizeof(int));
 		for (int i = 0; i < 7; i++) final_occurences[i] = 0;
 		for (int i = 0; i < N; i++) {
@@ -493,7 +495,7 @@ int main(int argc, char** argv) {
 		}
 		for (int i = 0; i < 7; i++) {
 			fprintf(statf, "%d ", final_occurences[i]);
-		}
+		}*/
 
 
 		fclose(results);
