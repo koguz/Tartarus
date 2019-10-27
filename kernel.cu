@@ -54,7 +54,7 @@ __global__ void generate_boards(int* boards, curandState* state, int R) {
 		do {
 			int x = (curand(&localState) % (R - 2)) + 1;
 			int y = (curand(&localState) % (R - 2)) + 1;
-			if (boards[s + (x * R + y)] == 0) {
+			if (boards[s + (x * R + y)] == 0) {  
 				boards[s + (x * R + y)] = 1;
 				i++;
 			}
@@ -154,6 +154,35 @@ __global__ void run_boards(
 			}
 			rotate_ccw(&cd, 4);
 		}
+		//if (id == 12) printf(" %d ", cc);
+		/*if (cc == 6317 && id == 12) {
+			printf("---");
+			for (int m = cp.x - 1; m <= cp.x + 1; m++) {
+				for (int n = cp.y - 1; n <= cp.y + 1; n++) {
+					if (m > -1 && m < 6 && n > -1 && n < 6) {
+						printf("%d", boards[brd + (m * R + n)]);
+					}
+					else printf("X");
+				}
+			}
+			printf("---\n");
+
+			cc = 0;
+			for (int m = 0; m < 8; m++) {  // m is for the 8-neighborhood
+				int cx = cp.x + cd.x; int cy = cp.y + cd.y;
+				if (cx < 0 || cy < 0 || cx >= R || cy >= R) {
+					// then it is a wall (wall = 2)
+					cc += powf(3, m) * 2;
+					printf("W");
+				}
+				else {
+					cc += powf(3, m) * boards[brd + (cx * R + cy)];
+					printf("%d", boards[brd + (cx * R + cy)]);
+				}
+				rotate_ccw(&cd, 4);
+			}
+			printf("~%d~", cc);
+		}*/
 		int action = pop[ind + (cs * C + cc)].action;
 		cs = pop[ind + (cs * C + cc)].next_state;
 		statistics[blockIdx.x * C + cc]++;
