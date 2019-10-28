@@ -141,19 +141,24 @@ __global__ void run_boards(
 	int cs = pop[ind + G - 1].next_state;
 	for (int i = 0; i < M; i++) {  // perform M moves (default 80)
 		int cc = 0;
+		float cct = 0.0f;
 		int occ = 0;
 		for (int m = 0; m < 8; m++) {  // m is for the 8-neighborhood
 			int cx = cp.x + cd.x; int cy = cp.y + cd.y; 
 			if (cx < 0 || cy < 0 || cx >= R || cy >= R) {
 				// then it is a wall (wall = 2)
-				cc += powf(3, m) * 2;
+				// cc += powf(3, m) * 2; // this has rounding errors... 
+				cct += powf(3, m) * 2.0f;
 			}
 			else {
-				cc += powf(3, m) * boards[brd + (cx * R + cy)];
+				//cc += powf(3, m) * boards[brd + (cx * R + cy)];
+				cct += powf(3, m) * (float)boards[brd + (cx * R + cy)];
 				occ += boards[brd + (cx * R + cy)];
 			}
 			rotate_ccw(&cd, 4);
 		}
+		cc = (int)cct; 
+		//if (cct >= 6317.0f && cct <= 6318.0f && id == 12) printf("--%f/%d--", cct, (int)cct);
 		//if (id == 12) printf(" %d ", cc);
 		/*if (cc == 6317 && id == 12) {
 			printf("---");
