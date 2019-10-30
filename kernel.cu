@@ -43,11 +43,9 @@ __global__ void init_population(gene* pop, int G, int S, curandState* state) {
 
 __global__ void generate_boards(int* boards, curandState* state, int R) {
 	int id = blockIdx.x * blockDim.x + threadIdx.x; 
-	// curandState localState = state[blockIdx.x];
 	curandState localState = state[id];
 
 	int s = id * R * R; 
-	//int* board = (int*)((char*)boards + id * pitch);
 	while (1) {
 		for (int i = s; i < s + (R * R); i++) boards[i] = 0; // first let all be 0
 		int i = 0;
@@ -87,7 +85,6 @@ __global__ void average_fitness(int P, int* F, float* avg_fit) {
 		sum += F[i];
 	}
 	avg_fit[id] = (float)sum / (float)P;
-	//printf("%f \n", avg_fit[id]);
 }
 
 __global__ void run_boards(
@@ -98,9 +95,7 @@ __global__ void run_boards(
 	int G,
 	int M,
 	int C,
-	int* F,
-	int* statistics,
-	int* occurences) {
+	int* F) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -108,10 +103,8 @@ __global__ void run_boards(
 
 	// get the individual
 	int ind = blockIdx.x * G; 
-	// gene* ind = (gene*)((char*)pop + blockIdx.x * pitch); 
 	// get the board... 
 	int brd = id * R * R; 
-	// int* board = (int*)((char*)boards + id * board_pitch);
 
 	// find a random position on board
 	pos cp; cp.x = -1; cp.y = -1;
@@ -133,7 +126,7 @@ __global__ void run_boards(
 	case 2:
 		cd.x = 1; cd.y = 0;
 		break;
-	default:  // case 3 and others... 
+	default:  
 		cd.x = -1; cd.y = 0;
 		break;
 	}
@@ -151,47 +144,14 @@ __global__ void run_boards(
 				cct += powf(3, m) * 2.0f;
 			}
 			else {
-				//cc += powf(3, m) * boards[brd + (cx * R + cy)];
 				cct += powf(3, m) * (float)boards[brd + (cx * R + cy)];
 				occ += boards[brd + (cx * R + cy)];
 			}
 			rotate_ccw(&cd, 4);
 		}
 		cc = (int)cct; 
-		//if (cct >= 6317.0f && cct <= 6318.0f && id == 12) printf("--%f/%d--", cct, (int)cct);
-		//if (id == 12) printf(" %d ", cc);
-		/*if (cc == 6317 && id == 12) {
-			printf("---");
-			for (int m = cp.x - 1; m <= cp.x + 1; m++) {
-				for (int n = cp.y - 1; n <= cp.y + 1; n++) {
-					if (m > -1 && m < 6 && n > -1 && n < 6) {
-						printf("%d", boards[brd + (m * R + n)]);
-					}
-					else printf("X");
-				}
-			}
-			printf("---\n");
-
-			cc = 0;
-			for (int m = 0; m < 8; m++) {  // m is for the 8-neighborhood
-				int cx = cp.x + cd.x; int cy = cp.y + cd.y;
-				if (cx < 0 || cy < 0 || cx >= R || cy >= R) {
-					// then it is a wall (wall = 2)
-					cc += powf(3, m) * 2;
-					printf("W");
-				}
-				else {
-					cc += powf(3, m) * boards[brd + (cx * R + cy)];
-					printf("%d", boards[brd + (cx * R + cy)]);
-				}
-				rotate_ccw(&cd, 4);
-			}
-			printf("~%d~", cc);
-		}*/
 		int action = pop[ind + (cs * C + cc)].action;
 		cs = pop[ind + (cs * C + cc)].next_state;
-		statistics[blockIdx.x * C + cc]++;
-		occurences[blockIdx.x * 7 + occ]++;
 
 		int cx, cy, dx, dy;
 		switch (action) {
@@ -242,7 +202,6 @@ __global__ void run_boards(
 __global__ void crossover(int* idx, float* f, gene* pop, int G, int S, curandState* state) {
 	// id will be N/4, so we multiply by 4
 	int id = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
-	// curandState localState = state[blockIdx.x];
 	curandState localState = state[id];
 
 	float max1 = -1.0f, max2 = -1.0f;
@@ -275,7 +234,8 @@ __global__ void crossover(int* idx, float* f, gene* pop, int G, int S, curandSta
 	int X = 1000;
 	for (int i = 0; i < G; i++) {
 		if (curand(&localState) % 2 == 0) {
-			if (curand(&localState) % X == 19) {
+			// 19 to 22 are random numbers to get the one in an X chance.
+			if (curand(&localState) % X == 19) {  
 				pop[min1 * G + i].action = curand(&localState) % 3;
 				pop[min1 * G + i].next_state = curand(&localState) % S;
 			}
@@ -326,13 +286,13 @@ void shuffle(int* arr, int S) {
 }
 
 int main(int argc, char** argv) {	
-	argv[1] = "4"; argv[2] = "4"; argv[3] = "11";
+	argv[1] = "1"; argv[2] = "4"; argv[3] = "11";
 	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
 
 	// various variables
-	bool writeToFile = true;			// write to file
+	bool writeToFile = false;			// write to file
 	int block_size = 256;				// number of threads in a block
 	int K = 1000;						// number of generations
 	int N = block_size * atoi(argv[1]);	// number of individuals in population
@@ -353,18 +313,15 @@ int main(int argc, char** argv) {
 	char sname[50];
 	sprintf(fname, "r-%d-%d-%d.txt", N, S, L);
 	sprintf(bname, "BEST-%s", fname);
-	sprintf(sname, "s-%d-%d-%d.txt", N, S, L);
-	FILE* results, * rsltall, * bestf, * statf;
+	FILE* results, * rsltall, * bestf;
 	
 	if (writeToFile) {
 		results = fopen(fname, "w");
 		rsltall = fopen("results.csv", "a");
 		bestf = fopen(bname, "w");
-		statf = fopen(sname, "w");
 	}
 
 	gene* pop; 
-	// instead of pitch, let's try managed... 
 	cudaError_t cudaStatus = cudaMallocManaged(&pop, N * G * sizeof(gene));
 	if (cudaStatus != cudaSuccess) {
 		printf("error in initialization of cudaMallocManaged (pop)\n");
@@ -428,15 +385,6 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	int* statistics; 
-	cudaStatus = cudaMallocManaged(&statistics, N * C * sizeof(int));
-	if (cudaStatus != cudaSuccess) {
-		printf("error in initialization of cudaMallocManaged (statistics) ");
-		return -1;
-	}
-	cudaDeviceSynchronize();
-	for (int i = 0; i < N * C; i++) statistics[i] = 0;
-
 	int* occurrences; 
 	cudaStatus = cudaMallocManaged(&occurrences, N * 7 * sizeof(int));
 	if (cudaStatus != cudaSuccess) {
@@ -453,7 +401,7 @@ int main(int argc, char** argv) {
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		generate_boards<<<N, P>>>(boards, devStates, R);
-		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, statistics, occurrences);
+		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F);
 		num_blocks = (N + block_size - 1) / block_size;
 		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
 		float gen_fitness = 0.0f;
@@ -474,7 +422,6 @@ int main(int argc, char** argv) {
 		gen_fitness = gen_fitness / (float)N;
 		if (topgenfit < gen_fitness)
 			topgenfit = gen_fitness;
-		// printf("%0.2f ", gen_fitness);
 		printf(".");
 		if(writeToFile) fprintf(results, "%0.2f ", gen_fitness);
 
@@ -496,7 +443,6 @@ int main(int argc, char** argv) {
 	}
 	printf("BEST INDIVIDUAL: %0.4f ", topfit);
 	printf("BEST GEN FIT: %0.4f ", topgenfit);
-	// fprintf(results, "\n\nBEST IND %0.4f\nBEST GEN %0.4f", topfit);
 	dur = time(0) - dur;
 	printf("%d seconds\n", dur);
 	cudaDeviceSynchronize();
@@ -505,37 +451,11 @@ int main(int argc, char** argv) {
 		fprintf(rsltall, "%d,%d,%d,%0.4f,%0.4f,%d\n", N, S, L, topgenfit, topfit, dur);
 		for (int i = 0; i < G; i++) {
 			fprintf(bestf, "%d %d ", best[i].action, best[i].next_state);
-			// printf("%d %d ", best[i].action, best[i].next_state);
 		}
-
-		int* final_statistics = (int*)malloc(C * sizeof(int));
-		for (int i = 0; i < C; i++) final_statistics[i] = 0;
-		for (int i = 0; i < N; i++) {
-			for (int j = 0; j < C; j++) {
-				final_statistics[j] += statistics[i * C + j];
-			}
-		}
-		for (int i = 0; i < C; i++) {
-			fprintf(statf, "%d ", final_statistics[i]);
-		}
-
-		/*fprintf(statf, "\n");
-		int* final_occurences = (int*)malloc(7 * sizeof(int));
-		for (int i = 0; i < 7; i++) final_occurences[i] = 0;
-		for (int i = 0; i < N; i++) {
-			for (int j = 0; j < 7; j++) {
-				final_occurences[j] += occurrences[i * 7 + j];
-			}
-		}
-		for (int i = 0; i < 7; i++) {
-			fprintf(statf, "%d ", final_occurences[i]);
-		}*/
-
 
 		fclose(results);
 		fclose(rsltall);
 		fclose(bestf);
-		fclose(statf);
 	}
 
 	return 0;
