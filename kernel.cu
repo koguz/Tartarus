@@ -35,7 +35,11 @@ __global__ void init_population(gene* pop, int G, int S, curandState* state) {
 	curandState localState = state[id];
 	int s = id * G; 
 	for (int i = s; i < s + G; i++) {
-		pop[i].action = curand(&localState) % 3;
+		int myrand = curand(&localState) % 100;
+		if (myrand < 40) pop[i].action = 0;
+		else if (myrand < 70) pop[i].action = 1;
+		else pop[i].action = 2;
+		//pop[i].action = curand(&localState) % 3;
 		pop[i].next_state = curand(&localState) % S;
 	}
 	state[id] = localState;
@@ -286,13 +290,13 @@ void shuffle(int* arr, int S) {
 }
 
 int main(int argc, char** argv) {	
-	argv[1] = "1"; argv[2] = "4"; argv[3] = "11";
+	// argv[1] = "10"; argv[2] = "10"; argv[3] = "11";
 	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
 
 	// various variables
-	bool writeToFile = false;			// write to file
+	bool writeToFile = true;			// write to file
 	int block_size = 256;				// number of threads in a block
 	int K = 1000;						// number of generations
 	int N = block_size * atoi(argv[1]);	// number of individuals in population
