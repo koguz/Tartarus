@@ -11,6 +11,7 @@
 typedef struct gene_struct {
 	int next_state;
 	int action; 
+	int used;
 } gene;
 
 typedef struct position {
@@ -41,6 +42,7 @@ __global__ void init_population(gene* pop, int G, int S, curandState* state) {
 		else pop[i].action = 2;
 		//pop[i].action = curand(&localState) % 3;
 		pop[i].next_state = curand(&localState) % S;
+		pop[i].used = 0;
 	}
 	state[id] = localState;
 }
@@ -156,6 +158,7 @@ __global__ void run_boards(
 		cc = (int)cct; 
 		int action = pop[ind + (cs * C + cc)].action;
 		cs = pop[ind + (cs * C + cc)].next_state;
+		pop[ind + (cs * C + cc)].used++;  // this also serves as a statistic
 
 		int cx, cy, dx, dy;
 		switch (action) {
@@ -203,7 +206,16 @@ __global__ void run_boards(
 	state[id] = localState;
 }
 
-__global__ void crossover(int* idx, float* f, gene* pop, int G, int S, curandState* state) {
+__global__ void crossover(
+	int* idx,
+	float* f,
+	gene* pop,
+	int G,
+	int S,
+	curandState* state,
+	float ftmax,
+	float ftbar
+	) {
 	// id will be N/4, so we multiply by 4
 	int id = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
 	curandState localState = state[id];
@@ -235,8 +247,74 @@ __global__ void crossover(int* idx, float* f, gene* pop, int G, int S, curandSta
 	}
 	// idx1 is the maximum, idx2 is the second maximum
 	// uniform crossover using idxes and overwrite min1 and min2
-	int X = 1000;
+	/*float pm1 = 0.5; float pm2 = 0.5;
+	if (f[idx1] >= ftbar) pm1 = 0.5 * (ftmax - f[idx1]) / (ftmax - ftbar);
+	if (f[idx2] >= ftbar) pm2 = 0.5 * (ftmax - f[idx2]) / (ftmax - ftbar);*/
 	for (int i = 0; i < G; i++) {
+		// During the crossover, check if the gene is used or not. If used in both, 
+		// then weigh the probability of crossover for the benefit of the more fit 
+		// individual. If used in none, then use the regular crossover probability. 
+		// If used only in one, then choose it without any probability (think more on this final case). 
+
+		/*if (pop[idx1 * G + i].used && pop[idx2 * G + i].used) {
+			if (curand_uniform(&localState) <= (max1 / (max1 + max2))) {
+				pop[min1 * G + i].action = pop[idx1 * G + i].action;
+				pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
+				pop[min2 * G + i].action = pop[idx2 * G + i].action;
+				pop[min2 * G + i].next_state = pop[idx2 * G + i].next_state;
+			}
+			else {
+				pop[min1 * G + i].action = pop[idx2 * G + i].action;
+				pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
+				pop[min2 * G + i].action = pop[idx1 * G + i].action;
+				pop[min2 * G + i].next_state = pop[idx1 * G + i].next_state;
+			}
+		}
+		else if (pop[idx1 * G + i].used && !pop[idx2 * G + i].used) {
+			pop[min1 * G + i].action = pop[idx1 * G + i].action;
+			pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
+			pop[min2 * G + i].action = pop[idx1 * G + i].action;
+			pop[min2 * G + i].next_state = pop[idx1 * G + i].next_state;
+		}
+		else if (!pop[idx1 * G + i].used && pop[idx2 * G + i].used) {
+			pop[min1 * G + i].action = pop[idx2 * G + i].action;
+			pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
+			pop[min1 * G + i].action = pop[idx2 * G + i].action;
+			pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
+		}
+		else {
+			pop[min1 * G + i].action = pop[idx1 * G + i].action;
+			pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
+			pop[min2 * G + i].action = pop[idx2 * G + i].action;
+			pop[min2 * G + i].next_state = pop[idx2 * G + i].next_state;
+		}*/
+		/*if (curand_uniform(&localState) <= (max1 / (max1 + max2))) {
+			pop[min1 * G + i].action = pop[idx1 * G + i].action;
+			pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
+			pop[min2 * G + i].action = pop[idx2 * G + i].action;
+			pop[min2 * G + i].next_state = pop[idx2 * G + i].next_state;
+		}
+		else {
+			pop[min1 * G + i].action = pop[idx2 * G + i].action;
+			pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
+			pop[min2 * G + i].action = pop[idx1 * G + i].action;
+			pop[min2 * G + i].next_state = pop[idx1 * G + i].next_state;
+		}
+		// mutation 
+		if (curand_uniform(&localState) < pm1) {
+			pop[min1 * G + i].action = curand(&localState) % 3;
+			pop[min1 * G + i].next_state = curand(&localState) % S;
+		}
+		if (curand_uniform(&localState) < pm2) {
+			pop[min2 * G + i].action = curand(&localState) % 3;
+			pop[min2 * G + i].next_state = curand(&localState) % S;
+		}*/
+
+		// reset "used" values. 
+		pop[idx1 * G + i].used = false; pop[idx2 * G + i].used = false;
+		pop[min1 * G + i].used = false; pop[min2 * G + i].used = false;
+
+		int X = 1000;
 		if (curand(&localState) % 2 == 0) {
 			// 19 to 22 are random numbers to get the one in an X chance.
 			if (curand(&localState) % X == 19) {  
@@ -290,15 +368,15 @@ void shuffle(int* arr, int S) {
 }
 
 int main(int argc, char** argv) {	
-	// argv[1] = "10"; argv[2] = "10"; argv[3] = "11";
+	argv[1] = "1"; argv[2] = "4"; argv[3] = "11";
 	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
 
 	// various variables
-	bool writeToFile = true;			// write to file
+	bool writeToFile = false;			// write to file
 	int block_size = 256;				// number of threads in a block
-	int K = 1000;						// number of generations
+	int K = 400;						// minimum number of generations
 	int N = block_size * atoi(argv[1]);	// number of individuals in population
 	int P = 128;						// number of boards for each individual
 	int S = atoi(argv[2]);				// number of states
@@ -307,9 +385,11 @@ int main(int argc, char** argv) {
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
 	int* F;								// fitness matrix
-	float* avg_fit;						// average fitnesses
+	float* arr_avgfit;					// average fitnesses for each individual
 	int M = 80;							// number of moves allowed
 	int R = 6;							// size of board
+	float pc;							// crossover probability
+	float pm;							// mutation probability
 	int* idx;
 
 	char fname[50];
@@ -360,9 +440,9 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	cudaStatus = cudaMallocManaged(&avg_fit, N * sizeof(float));
+	cudaStatus = cudaMallocManaged(&arr_avgfit, N * sizeof(float));
 	if (cudaStatus != cudaSuccess) {
-		printf("error in initialization of cudaMallocManaged (avg_fit)\n");
+		printf("error in initialization of cudaMallocManaged (arr_avgfit)\n");
 		return -1;
 	}
 
@@ -398,22 +478,30 @@ int main(int argc, char** argv) {
 	cudaDeviceSynchronize();
 	for (int i = 0; i < N * 7; i++) occurrences[i] = 0;
 	
-	float topfit = 0.0f;
-	float topgenfit = 0.0f;
+	float best_ind_fitness = 0.0f;		// BEST individual
+	float best_gen_fitness = 0.0f;		// BEST generation fitness
+	float convergence = 0.0f;
+	int i = 0;
 
-	for (int i = 0; i < K; i++) {					// loop generations
+	while(i < K) {// || convergence < 0.95) {
+		i++;
+	// for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		generate_boards<<<N, P>>>(boards, devStates, R);
 		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F);
 		num_blocks = (N + block_size - 1) / block_size;
-		average_fitness<<<num_blocks, block_size>>>(P, F, avg_fit);
+		average_fitness<<<num_blocks, block_size>>>(P, F, arr_avgfit);
 		float gen_fitness = 0.0f;
+		float ind_fitness = 0.0f;
 		cudaDeviceSynchronize();
 		for (int j = 0; j < N; j++) {
-			gen_fitness += avg_fit[j];
-			if (topfit < avg_fit[j]) {
-				topfit = avg_fit[j];
+			gen_fitness += arr_avgfit[j];
+			if (ind_fitness < arr_avgfit[j]) {
+				ind_fitness = arr_avgfit[j];
+			}
+			if (best_ind_fitness < arr_avgfit[j]) {
+				best_ind_fitness = arr_avgfit[j];
 				int k = 0;
 				for (int tj = j * G; tj < (j + 1) * G; tj++) {
 					best[k].action = pop[tj].action;
@@ -424,9 +512,11 @@ int main(int argc, char** argv) {
 		}
 
 		gen_fitness = gen_fitness / (float)N;
-		if (topgenfit < gen_fitness)
-			topgenfit = gen_fitness;
-		printf(".");
+		if (best_gen_fitness < gen_fitness)   
+			best_gen_fitness = gen_fitness;
+		//printf(".");
+		convergence = gen_fitness / ind_fitness;
+		printf("%04d:%f, ", i, convergence);
 		if(writeToFile) fprintf(results, "%0.2f ", gen_fitness);
 
 		// add mutation adaptation here
@@ -442,17 +532,17 @@ int main(int argc, char** argv) {
 		else {
 			num_blocks = ((N / 4) + block_size - 1) / block_size;
 		}
-		crossover<<<num_blocks, block_size>>>(idx, avg_fit, pop, G, S, devStates);
+		crossover<<<num_blocks, block_size>>>(idx, arr_avgfit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness);
 		block_size = original_block_size;
 	}
-	printf("BEST INDIVIDUAL: %0.4f ", topfit);
-	printf("BEST GEN FIT: %0.4f ", topgenfit);
+	printf("BEST INDIVIDUAL: %0.4f ", best_ind_fitness);
+	printf("BEST GEN FIT: %0.4f ", best_gen_fitness);
 	dur = time(0) - dur;
 	printf("%d seconds\n", dur);
 	cudaDeviceSynchronize();
 	if (writeToFile)
 	{
-		fprintf(rsltall, "%d,%d,%d,%0.4f,%0.4f,%d\n", N, S, L, topgenfit, topfit, dur);
+		fprintf(rsltall, "%d,%d,%d,%0.4f,%0.4f,%d\n", N, S, L, best_gen_fitness, best_ind_fitness, dur);
 		for (int i = 0; i < G; i++) {
 			fprintf(bestf, "%d %d ", best[i].action, best[i].next_state);
 		}
