@@ -1,0 +1,13 @@
+2019.11.09
+
+typedef struct gene_struct {
+	int next_state;
+	int action; 
+} gene;
+
+Update the gene struct to include a boolean that is false by default, but is set to true when that gene is used. 
+  * How does the GA handle the "states"? A state in one individual might be different than another... but when the crossover is applied, the state might be pointing to something irrelevant. In this case, can we come up with a solution that can mark "partial" solutions. This is apparent in the video files of the agent; it handles the boxes close to the corners in the same way. 
+  
+During the crossover, check if the gene is used or not. If used in both, then weigh the probability of crossover for the benefit of the more fit individual. If used in none, then use the regular crossover probability. If used only in one, then choose it without any probability (think more on this final case). 
+
+Another TODO: Think more on other qualitative operators, such as parent selection. 
