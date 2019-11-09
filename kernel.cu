@@ -247,9 +247,12 @@ __global__ void crossover(
 	}
 	// idx1 is the maximum, idx2 is the second maximum
 	// uniform crossover using idxes and overwrite min1 and min2
-	/*float pm1 = 0.5; float pm2 = 0.5;
-	if (f[idx1] >= ftbar) pm1 = 0.5 * (ftmax - f[idx1]) / (ftmax - ftbar);
-	if (f[idx2] >= ftbar) pm2 = 0.5 * (ftmax - f[idx2]) / (ftmax - ftbar);*/
+	//float pm1 = 0.5; float pm2 = 0.5;
+	//if (f[idx1] >= ftbar) 
+		float pm1 = 100 * (ftmax - f[idx1]) / (ftmax - ftbar) / G;
+	//if (f[idx2] >= ftbar) 
+		float pm2 = 100 * (ftmax - f[idx2]) / (ftmax - ftbar) / G;
+	//printf("%f %f\n", pm1, pm2);
 	for (int i = 0; i < G; i++) {
 		// During the crossover, check if the gene is used or not. If used in both, 
 		// then weigh the probability of crossover for the benefit of the more fit 
@@ -287,8 +290,8 @@ __global__ void crossover(
 			pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
 			pop[min2 * G + i].action = pop[idx2 * G + i].action;
 			pop[min2 * G + i].next_state = pop[idx2 * G + i].next_state;
-		}*/
-		/*if (curand_uniform(&localState) <= (max1 / (max1 + max2))) {
+		}*//*
+		if (curand_uniform(&localState) <= (max1 / (max1 + max2))) {
 			pop[min1 * G + i].action = pop[idx1 * G + i].action;
 			pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
 			pop[min2 * G + i].action = pop[idx2 * G + i].action;
@@ -311,13 +314,15 @@ __global__ void crossover(
 		}*/
 
 		// reset "used" values. 
-		pop[idx1 * G + i].used = false; pop[idx2 * G + i].used = false;
-		pop[min1 * G + i].used = false; pop[min2 * G + i].used = false;
+		// pop[idx1 * G + i].used = false; pop[idx2 * G + i].used = false;
+		// pop[min1 * G + i].used = false; pop[min2 * G + i].used = false;
 
-		int X = 1000;
+		
+		// int X = 1000;
 		if (curand(&localState) % 2 == 0) {
 			// 19 to 22 are random numbers to get the one in an X chance.
-			if (curand(&localState) % X == 19) {  
+			if (curand_uniform(&localState) <= pm1) {
+			//if (curand(&localState) % X == 19) {  
 				pop[min1 * G + i].action = curand(&localState) % 3;
 				pop[min1 * G + i].next_state = curand(&localState) % S;
 			}
@@ -325,7 +330,8 @@ __global__ void crossover(
 				pop[min1 * G + i].action = pop[idx1 * G + i].action;
 				pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
 			}
-			if (curand(&localState) % X == 20) {
+			if (curand_uniform(&localState) <= pm2) {
+			//if (curand(&localState) % X == 20) {
 				pop[min2 * G + i].action = curand(&localState) % 3;
 				pop[min2 * G + i].next_state = curand(&localState) % S;
 			}
@@ -335,7 +341,8 @@ __global__ void crossover(
 			}
 		}
 		else {
-			if (curand(&localState) % X == 21) {
+			if (curand_uniform(&localState) <= pm1) {
+			//if (curand(&localState) % X == 21) {
 				pop[min1 * G + i].action = curand(&localState) % 3;
 				pop[min1 * G + i].next_state = curand(&localState) % S;
 			}
@@ -343,7 +350,8 @@ __global__ void crossover(
 				pop[min1 * G + i].action = pop[idx2 * G + i].action;
 				pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
 			}
-			if (curand(&localState) % X == 22) {
+			if (curand_uniform(&localState) <= pm2) {
+			//if (curand(&localState) % X == 22) {
 				pop[min2 * G + i].action = curand(&localState) % 3;
 				pop[min2 * G + i].next_state = curand(&localState) % S;
 			}
@@ -376,7 +384,7 @@ int main(int argc, char** argv) {
 	// various variables
 	bool writeToFile = false;			// write to file
 	int block_size = 256;				// number of threads in a block
-	int K = 400;						// minimum number of generations
+	int K = 1000;						// minimum number of generations
 	int N = block_size * atoi(argv[1]);	// number of individuals in population
 	int P = 128;						// number of boards for each individual
 	int S = atoi(argv[2]);				// number of states
@@ -483,7 +491,7 @@ int main(int argc, char** argv) {
 	float convergence = 0.0f;
 	int i = 0;
 
-	while(i < K) {// || convergence < 0.95) {
+	while(i < K || convergence > 0.95) {
 		i++;
 	// for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
@@ -514,9 +522,10 @@ int main(int argc, char** argv) {
 		gen_fitness = gen_fitness / (float)N;
 		if (best_gen_fitness < gen_fitness)   
 			best_gen_fitness = gen_fitness;
-		//printf(".");
+		printf(".");
 		convergence = gen_fitness / ind_fitness;
-		printf("%04d:%f, ", i, convergence);
+		//printf("%04d:%0.2f-%0.2f, ", i, convergence, gen_fitness);
+		printf("%0.2f ", gen_fitness);
 		if(writeToFile) fprintf(results, "%0.2f ", gen_fitness);
 
 		// add mutation adaptation here
