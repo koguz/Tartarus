@@ -247,11 +247,9 @@ __global__ void crossover(
 	}
 	// idx1 is the maximum, idx2 is the second maximum
 	// uniform crossover using idxes and overwrite min1 and min2
-	//float pm1 = 0.5; float pm2 = 0.5;
-	//if (f[idx1] >= ftbar) 
-		float pm1 = 100 * (ftmax - f[idx1]) / (ftmax - ftbar) / G;
-	//if (f[idx2] >= ftbar) 
-		float pm2 = 100 * (ftmax - f[idx2]) / (ftmax - ftbar) / G;
+	float pm1 = 100 * 0.5 / G; float pm2 = 100 * 0.5 / G;
+	if (f[idx1] >= ftbar) pm1 = 100 * (ftmax - f[idx1]) / (ftmax - ftbar) / G;
+	if (f[idx2] >= ftbar) pm2 = 100 * (ftmax - f[idx2]) / (ftmax - ftbar) / G;
 	//printf("%f %f\n", pm1, pm2);
 	for (int i = 0; i < G; i++) {
 		// During the crossover, check if the gene is used or not. If used in both, 
@@ -376,7 +374,7 @@ void shuffle(int* arr, int S) {
 }
 
 int main(int argc, char** argv) {	
-	argv[1] = "1"; argv[2] = "4"; argv[3] = "11";
+	//argv[1] = "5"; argv[2] = "10"; argv[3] = "11";
 	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
