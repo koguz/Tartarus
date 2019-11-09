@@ -380,7 +380,7 @@ int main(int argc, char** argv) {
 	srand(time(0));
 
 	// various variables
-	bool writeToFile = false;			// write to file
+	bool writeToFile = true;			// write to file
 	int block_size = 256;				// number of threads in a block
 	int K = 1000;						// minimum number of generations
 	int N = block_size * atoi(argv[1]);	// number of individuals in population
@@ -401,13 +401,13 @@ int main(int argc, char** argv) {
 	char fname[50];
 	char bname[60];
 	char sname[50];
-	sprintf(fname, "r-%d-%d-%d.txt", N, S, L);
-	sprintf(bname, "BEST-%s", fname);
+	sprintf(fname, "r-a-%d-%d-%d.txt", N, S, L);
+	sprintf(bname, "BEST-a-%s", fname);
 	FILE* results, * rsltall, * bestf;
 	
 	if (writeToFile) {
 		results = fopen(fname, "w");
-		rsltall = fopen("results.csv", "a");
+		rsltall = fopen("results-adaptive.csv", "a");
 		bestf = fopen(bname, "w");
 	}
 
@@ -523,7 +523,7 @@ int main(int argc, char** argv) {
 		printf(".");
 		convergence = gen_fitness / ind_fitness;
 		//printf("%04d:%0.2f-%0.2f, ", i, convergence, gen_fitness);
-		printf("%0.2f ", gen_fitness);
+		//printf("%0.2f ", gen_fitness);
 		if(writeToFile) fprintf(results, "%0.2f ", gen_fitness);
 
 		// add mutation adaptation here
