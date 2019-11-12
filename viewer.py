@@ -10,7 +10,9 @@ def rotate(r, v):
     return [x, y]
 
 def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool):
+    used_states = set()
     for step in range(0, 81):
+        used_states.add(cs)
         if saveImages:
             for x in range(0, 6):
                 for y in range(0, 6):
@@ -57,6 +59,7 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool):
             fname = "state-%02d.png" % step
             im.save(fname)
 
+    print(len(used_states))
     fitness = 0
     for x in range(0, 6):
         for y in range(0, 6):
@@ -71,7 +74,7 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool):
 # "C:/Users/Kaya/source/repos/Tartarus00/x64/Release/BEST-r-1280-10-451.txt"
 # C:/Users/Kaya/source/repos/Tartarus00/BEST-r-256-4-10.txt
 
-with open("C:/Users/Kaya/source/repos/Tartarus00/x64/Release/BEST-r-1280-10-451.txt") as f:
+with open("C:/Users/Kaya/source/repos/Tartarus00/x64/Release/BEST-a-r-a-2048-7-7.txt") as f:
     d = f.read()
 
 v = d.split()
@@ -158,7 +161,7 @@ while devam:
 
     sonuc = runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, False)
     print(sonuc)
-    if sonuc > 7:
+    if sonuc == 0:
         print("found!")
         runboard(yedek, cp2, cd2, cs2, a, s, im, ima, imb, ime, True)
         devam = False
