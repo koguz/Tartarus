@@ -101,7 +101,9 @@ __global__ void run_boards(
 	int G,
 	int M,
 	int C,
-	int* F) {
+	int* F,
+	int* ix,
+	int* statistics) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -155,10 +157,11 @@ __global__ void run_boards(
 			}
 			rotate_ccw(&cd, 4);
 		}
-		cc = (int)cct; 
+		cc = ix[(int)cct]; 
 		int action = pop[ind + (cs * C + cc)].action;
 		cs = pop[ind + (cs * C + cc)].next_state;
 		pop[ind + (cs * C + cc)].used++;  // this also serves as a statistic
+		statistics[blockIdx.x * C + cc]++;
 
 		int cx, cy, dx, dy;
 		switch (action) {
@@ -247,9 +250,10 @@ __global__ void crossover(
 	}
 	// idx1 is the maximum, idx2 is the second maximum
 	// uniform crossover using idxes and overwrite min1 and min2
-	float pm1 = 100 * 0.5 / G; float pm2 = 100 * 0.5 / G;
-	if (f[idx1] >= ftbar) pm1 = 100 * (ftmax - f[idx1]) / (ftmax - ftbar) / G;
-	if (f[idx2] >= ftbar) pm2 = 100 * (ftmax - f[idx2]) / (ftmax - ftbar) / G;
+	int k = 10;
+	float pm1 = k * 0.5 / G; float pm2 = k * 0.5 / G;
+	if (f[idx1] >= ftbar) pm1 = k * (ftmax - f[idx1]) / (ftmax - ftbar) / G;
+	if (f[idx2] >= ftbar) pm2 = k * (ftmax - f[idx2]) / (ftmax - ftbar) / G;
 	//printf("%f %f\n", pm1, pm2);
 	for (int i = 0; i < G; i++) {
 		// During the crossover, check if the gene is used or not. If used in both, 
@@ -387,7 +391,7 @@ int main(int argc, char** argv) {
 	int P = 128;						// number of boards for each individual
 	int S = atoi(argv[2]);				// number of states
 	int L = atoi(argv[3]);				// run no
-	int C = (int)pow(3, 8);				// number of combinations
+	int C = 383;						// number of combinations -- (int)pow(3, 8);
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
 	int* F;								// fitness matrix
@@ -403,12 +407,13 @@ int main(int argc, char** argv) {
 	char sname[50];
 	sprintf(fname, "r-a-%d-%d-%d.txt", N, S, L);
 	sprintf(bname, "BEST-a-%s", fname);
-	FILE* results, * rsltall, * bestf;
+	FILE* results, * rsltall, * bestf, * statf;
 	
 	if (writeToFile) {
 		results = fopen(fname, "w");
 		rsltall = fopen("results-adaptive.csv", "a");
 		bestf = fopen(bname, "w");
+		statf = fopen("statistics.txt", "w");
 	}
 
 	gene* pop; 
@@ -424,6 +429,16 @@ int main(int argc, char** argv) {
 		printf("error in initialization of cudaMallocManaged (best)\n");
 		return -1;
 	}
+
+	int iidx[383] = { 0,1,3,4,9,10,12,13,27,28,30,31,36,37,39,40,78,79,81,82,84,85,90,91,93,94,108,109,111,112,117,118,120,121,159,160,242,243,245,246,251,252,254,255,270,271,273,274,279,280,282,283,321,322,324,325,327,328,333,334,336,337,351,352,354,355,360,361,363,364,402,403,702,703,705,706,711,712,714,715,726,727,729,730,732,733,738,739,741,742,756,757,759,760,765,766,768,769,807,808,810,811,813,814,819,820,822,823,837,838,840,841,846,847,849,850,888,972,973,975,976,981,982,984,985,999,1000,1002,1003,1008,1009,1011,1012,1050,1051,1053,1054,1056,1057,1062,1063,1065,1066,1080,1081,1083,1084,1089,1090,1092,1131,1431,1432,1434,1435,1440,1443,1455,2187,2188,2190,2191,2196,2197,2199,2200,2214,2215,2217,2218,2223,2224,2226,2227,2265,2266,2268,2269,2271,2272,2277,2278,2280,2281,2295,2296,2298,2299,2304,2305,2307,2308,2346,2347,2430,2431,2433,2434,2439,2440,2442,2443,2457,2458,2460,2461,2466,2467,2469,2470,2508,2509,2511,2512,2514,2515,2520,2521,2523,2524,2538,2539,2541,2542,2547,2548,2550,2589,2590,2889,2890,2892,2893,2898,2899,2901,2902,2913,2914,2916,2917,2919,2920,2925,2926,2928,2929,2943,2944,2946,2947,2952,2953,2955,2956,2994,2995,2997,2998,3000,3001,3006,3007,3009,3010,3024,3025,3027,3028,3033,3034,3036,3075,3159,3160,3162,3163,3168,3169,3171,3172,3186,3187,3189,3190,3195,3196,3198,3237,3238,3240,3241,3243,3244,3249,3250,3252,3267,3268,3270,3276,3318,3618,3619,3621,3622,3627,3630,3642,4382,4391,4409,4418,4454,4463,4472,4490,4499,4535,4625,4634,4652,4661,4697,4706,4715,4733,4742,4778,5111,5120,5138,5147,5183,5192,5219,5354,5363,5381,5390,5426,5435,5462,6318,6319,6321,6322,6326,6327,6328,6330,6331,6335,6345,6346,6348,6349,6353,6354,6355,6357,6358,6362,6399,6400,6402,6403,6407,6408,6411,6426,6427,6429,6430,6434,6435,6438,6534,6535,6537,6538,6543,6546 };
+	int* ix;
+	cudaStatus = cudaMallocManaged(&ix, 6561 * sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (ix)\n");
+		return -1;
+	}
+	for (int i = 0; i < 6561; i++) ix[i] = 0; // first make them all zero, then
+	for (int i = 0; i < 383; i++) ix[iidx[i]] = i;  // create the inverted index
 
 	// random seeds for each board of each individual
 	cudaStatus = cudaMallocManaged(&Q, N * P * sizeof(int));
@@ -475,27 +490,27 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	int* occurrences; 
-	cudaStatus = cudaMallocManaged(&occurrences, N * 7 * sizeof(int));
+	int* statistics;
+	cudaStatus = cudaMallocManaged(&statistics, N * C * sizeof(int));
 	if (cudaStatus != cudaSuccess) {
-		printf("error in initialization of cudaMallocManaged (occurrences) ");
+		printf("error in initialization of cudaMallocManaged (statistics) ");
 		return -1;
 	}
 	cudaDeviceSynchronize();
-	for (int i = 0; i < N * 7; i++) occurrences[i] = 0;
+	for (int i = 0; i < N * C; i++) statistics[i] = 0;
 	
 	float best_ind_fitness = 0.0f;		// BEST individual
 	float best_gen_fitness = 0.0f;		// BEST generation fitness
 	float convergence = 0.0f;
 	int i = 0;
 
-	while(i < K || convergence > 0.95) {
+	while(i < K || convergence > 0.97) {
 		i++;
 	// for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		generate_boards<<<N, P>>>(boards, devStates, R);
-		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F);
+		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, ix, statistics);
 		num_blocks = (N + block_size - 1) / block_size;
 		average_fitness<<<num_blocks, block_size>>>(P, F, arr_avgfit);
 		float gen_fitness = 0.0f;
@@ -554,9 +569,21 @@ int main(int argc, char** argv) {
 			fprintf(bestf, "%d %d ", best[i].action, best[i].next_state);
 		}
 
+		int* final_statistics = (int*)malloc(C * sizeof(int));
+		for (int i = 0; i < C; i++) final_statistics[i] = 0;
+		for (int i = 0; i < N; i++) {
+			for (int j = 0; j < C; j++) {
+				final_statistics[j] += statistics[i * C + j];
+			}
+		}
+		for (int i = 0; i < C; i++) {
+			fprintf(statf, "%d ", final_statistics[i]);
+		}
+
 		fclose(results);
 		fclose(rsltall);
 		fclose(bestf);
+		fclose(statf);
 	}
 
 	return 0;
