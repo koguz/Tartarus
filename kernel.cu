@@ -405,15 +405,16 @@ int main(int argc, char** argv) {
 	char fname[50];
 	char bname[60];
 	char sname[50];
-	sprintf(fname, "r-a-%d-%d-%d.txt", N, S, L);
-	sprintf(bname, "BEST-a-%s", fname);
+	sprintf(fname, "txt/r-f-%d-%d-%d.txt", N, S, L);
+	sprintf(bname, "txt/b-f-%d-%d-%d", N, S, L);
+	sprintf(sname, "txt/s-f-%d-%d-%d", N, S, L);
 	FILE* results, * rsltall, * bestf, * statf;
 	
 	if (writeToFile) {
 		results = fopen(fname, "w");
-		rsltall = fopen("results-adaptive.csv", "a");
+		rsltall = fopen("txt/results-f.csv", "a");
 		bestf = fopen(bname, "w");
-		statf = fopen("statistics.txt", "w");
+		statf = fopen(sname, "w");
 	}
 
 	gene* pop; 
