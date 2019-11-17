@@ -11,7 +11,6 @@
 typedef struct gene_struct {
 	int next_state;
 	int action; 
-	int used;
 } gene;
 
 typedef struct position {
@@ -42,7 +41,6 @@ __global__ void init_population(gene* pop, int G, int S, curandState* state) {
 		else pop[i].action = 2;
 		//pop[i].action = curand(&localState) % 3;
 		pop[i].next_state = curand(&localState) % S;
-		pop[i].used = 0;
 	}
 	state[id] = localState;
 }
@@ -143,7 +141,6 @@ __global__ void run_boards(
 	for (int i = 0; i < M; i++) {  // perform M moves (default 80)
 		int cc = 0;
 		float cct = 0.0f;
-		int occ = 0;
 		for (int m = 0; m < 8; m++) {  // m is for the 8-neighborhood
 			int cx = cp.x + cd.x; int cy = cp.y + cd.y; 
 			if (cx < 0 || cy < 0 || cx >= R || cy >= R) {
@@ -153,14 +150,12 @@ __global__ void run_boards(
 			}
 			else {
 				cct += powf(3, m) * (float)boards[brd + (cx * R + cy)];
-				occ += boards[brd + (cx * R + cy)];
 			}
 			rotate_ccw(&cd, 4);
 		}
 		cc = ix[(int)cct]; 
 		int action = pop[ind + (cs * C + cc)].action;
 		cs = pop[ind + (cs * C + cc)].next_state;
-		pop[ind + (cs * C + cc)].used++;  // this also serves as a statistic
 		statistics[blockIdx.x * C + cc]++;
 
 		int cx, cy, dx, dy;
