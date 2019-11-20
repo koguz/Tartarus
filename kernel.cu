@@ -217,7 +217,8 @@ __global__ void crossover(
 	int S,
 	curandState* state,
 	float ftmax,
-	float ftbar
+	float ftbar,
+	int* sum_occ
 	) {
 	// id will be N/4, so we multiply by 4
 	int id = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
@@ -254,77 +255,9 @@ __global__ void crossover(
 	float pm1 = k * 0.5 / G; float pm2 = k * 0.5 / G;
 	if (f[idx1] >= ftbar) pm1 = k * (ftmax - f[idx1]) / (ftmax - ftbar) / G;
 	if (f[idx2] >= ftbar) pm2 = k * (ftmax - f[idx2]) / (ftmax - ftbar) / G;
-	//printf("%f %f\n", pm1, pm2);
 	for (int i = 0; i < G; i++) {
-		// During the crossover, check if the gene is used or not. If used in both, 
-		// then weigh the probability of crossover for the benefit of the more fit 
-		// individual. If used in none, then use the regular crossover probability. 
-		// If used only in one, then choose it without any probability (think more on this final case). 
-
-		/*if (pop[idx1 * G + i].used && pop[idx2 * G + i].used) {
-			if (curand_uniform(&localState) <= (max1 / (max1 + max2))) {
-				pop[min1 * G + i].action = pop[idx1 * G + i].action;
-				pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
-				pop[min2 * G + i].action = pop[idx2 * G + i].action;
-				pop[min2 * G + i].next_state = pop[idx2 * G + i].next_state;
-			}
-			else {
-				pop[min1 * G + i].action = pop[idx2 * G + i].action;
-				pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
-				pop[min2 * G + i].action = pop[idx1 * G + i].action;
-				pop[min2 * G + i].next_state = pop[idx1 * G + i].next_state;
-			}
-		}
-		else if (pop[idx1 * G + i].used && !pop[idx2 * G + i].used) {
-			pop[min1 * G + i].action = pop[idx1 * G + i].action;
-			pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
-			pop[min2 * G + i].action = pop[idx1 * G + i].action;
-			pop[min2 * G + i].next_state = pop[idx1 * G + i].next_state;
-		}
-		else if (!pop[idx1 * G + i].used && pop[idx2 * G + i].used) {
-			pop[min1 * G + i].action = pop[idx2 * G + i].action;
-			pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
-			pop[min1 * G + i].action = pop[idx2 * G + i].action;
-			pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
-		}
-		else {
-			pop[min1 * G + i].action = pop[idx1 * G + i].action;
-			pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
-			pop[min2 * G + i].action = pop[idx2 * G + i].action;
-			pop[min2 * G + i].next_state = pop[idx2 * G + i].next_state;
-		}*//*
-		if (curand_uniform(&localState) <= (max1 / (max1 + max2))) {
-			pop[min1 * G + i].action = pop[idx1 * G + i].action;
-			pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
-			pop[min2 * G + i].action = pop[idx2 * G + i].action;
-			pop[min2 * G + i].next_state = pop[idx2 * G + i].next_state;
-		}
-		else {
-			pop[min1 * G + i].action = pop[idx2 * G + i].action;
-			pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
-			pop[min2 * G + i].action = pop[idx1 * G + i].action;
-			pop[min2 * G + i].next_state = pop[idx1 * G + i].next_state;
-		}
-		// mutation 
-		if (curand_uniform(&localState) < pm1) {
-			pop[min1 * G + i].action = curand(&localState) % 3;
-			pop[min1 * G + i].next_state = curand(&localState) % S;
-		}
-		if (curand_uniform(&localState) < pm2) {
-			pop[min2 * G + i].action = curand(&localState) % 3;
-			pop[min2 * G + i].next_state = curand(&localState) % S;
-		}*/
-
-		// reset "used" values. 
-		// pop[idx1 * G + i].used = false; pop[idx2 * G + i].used = false;
-		// pop[min1 * G + i].used = false; pop[min2 * G + i].used = false;
-
-		
-		// int X = 1000;
 		if (curand(&localState) % 2 == 0) {
-			// 19 to 22 are random numbers to get the one in an X chance.
 			if (curand_uniform(&localState) <= pm1) {
-			//if (curand(&localState) % X == 19) {  
 				pop[min1 * G + i].action = curand(&localState) % 3;
 				pop[min1 * G + i].next_state = curand(&localState) % S;
 			}
@@ -333,7 +266,6 @@ __global__ void crossover(
 				pop[min1 * G + i].next_state = pop[idx1 * G + i].next_state;
 			}
 			if (curand_uniform(&localState) <= pm2) {
-			//if (curand(&localState) % X == 20) {
 				pop[min2 * G + i].action = curand(&localState) % 3;
 				pop[min2 * G + i].next_state = curand(&localState) % S;
 			}
@@ -344,7 +276,6 @@ __global__ void crossover(
 		}
 		else {
 			if (curand_uniform(&localState) <= pm1) {
-			//if (curand(&localState) % X == 21) {
 				pop[min1 * G + i].action = curand(&localState) % 3;
 				pop[min1 * G + i].next_state = curand(&localState) % S;
 			}
@@ -353,7 +284,6 @@ __global__ void crossover(
 				pop[min1 * G + i].next_state = pop[idx2 * G + i].next_state;
 			}
 			if (curand_uniform(&localState) <= pm2) {
-			//if (curand(&localState) % X == 22) {
 				pop[min2 * G + i].action = curand(&localState) % 3;
 				pop[min2 * G + i].next_state = curand(&localState) % S;
 			}
@@ -555,7 +485,7 @@ int main(int argc, char** argv) {
 		else {
 			num_blocks = ((N / 4) + block_size - 1) / block_size;
 		}
-		crossover<<<num_blocks, block_size>>>(idx, arr_avgfit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness);
+		crossover<<<num_blocks, block_size>>>(idx, arr_avgfit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness, sum_occ);
 		block_size = original_block_size;
 	}
 	printf("BEST INDIVIDUAL: %0.4f ", best_ind_fitness);
