@@ -79,7 +79,7 @@ __global__ void generate_boards(int* boards, curandState* state, int R) {
 	state[id] = localState;
 }
 
-__global__ void average_fitness(int P, int* F, float* avg_fit) {
+__global__ void average_fitness(int P, int* F, float* avg_fit, int G){
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
 	// we get the current thread with id - it will be as many as N
 	// F is N * P, so we skip ahead P 
@@ -101,11 +101,13 @@ __global__ void run_boards(
 	int C,
 	int* F,
 	int* ix,
+	int* sum_occ,
 	int* statistics) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
 	curandState localState = state[id]; // used to be blockIdx.x
+	
 
 	// get the individual
 	int ind = blockIdx.x * G; 
@@ -157,6 +159,9 @@ __global__ void run_boards(
 		int action = pop[ind + (cs * C + cc)].action;
 		cs = pop[ind + (cs * C + cc)].next_state;
 		statistics[blockIdx.x * C + cc]++;
+		// occ[id * G + cc]++;
+		// atomic
+		atomicAdd(&sum_occ[blockIdx.x * G + cc], 1);
 
 		int cx, cy, dx, dy;
 		switch (action) {
@@ -393,8 +398,6 @@ int main(int argc, char** argv) {
 	float* arr_avgfit;					// average fitnesses for each individual
 	int M = 80;							// number of moves allowed
 	int R = 6;							// size of board
-	float pc;							// crossover probability
-	float pm;							// mutation probability
 	int* idx;
 
 	char fname[50];
@@ -492,8 +495,16 @@ int main(int argc, char** argv) {
 		printf("error in initialization of cudaMallocManaged (statistics) ");
 		return -1;
 	}
-	cudaDeviceSynchronize();
+
+	int* sum_occ;
+	cudaStatus = cudaMallocManaged(&sum_occ, N * G * sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (sum_occ) ");
+		return -1;
+	}
+	cudaDeviceSynchronize(); // we need this so that the GPU can allocate memory for statistics and occ. 
 	for (int i = 0; i < N * C; i++) statistics[i] = 0;
+	for (int i = 0; i < N * G; i++) sum_occ[i] = 0;
 	
 	float best_ind_fitness = 0.0f;		// BEST individual
 	float best_gen_fitness = 0.0f;		// BEST generation fitness
@@ -506,9 +517,9 @@ int main(int argc, char** argv) {
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		generate_boards<<<N, P>>>(boards, devStates, R);
-		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, ix, statistics);
+		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, ix, sum_occ, statistics);
 		num_blocks = (N + block_size - 1) / block_size;
-		average_fitness<<<num_blocks, block_size>>>(P, F, arr_avgfit);
+		average_fitness<<<num_blocks, block_size>>>(P, F, arr_avgfit, G);// , occ, sum_occ);
 		float gen_fitness = 0.0f;
 		float ind_fitness = 0.0f;
 		cudaDeviceSynchronize();
@@ -533,13 +544,7 @@ int main(int argc, char** argv) {
 			best_gen_fitness = gen_fitness;
 		printf(".");
 		convergence = gen_fitness / ind_fitness;
-		//printf("%04d:%0.2f-%0.2f, ", i, convergence, gen_fitness);
-		//printf("%0.2f ", gen_fitness);
 		if(writeToFile) fprintf(results, "%0.2f ", gen_fitness);
-
-		// add mutation adaptation here
-
-		// moving on to crossover...
 		// shuffle... 
 		shuffle(idx, N);
 		int original_block_size = block_size;
