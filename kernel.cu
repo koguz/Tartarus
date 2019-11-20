@@ -440,16 +440,13 @@ int main(int argc, char** argv) {
 	float best_gen_fitness = 0.0f;		// BEST generation fitness
 	float convergence = 0.0f;
 	int i = 0;
-
 	while(i < K || convergence > 0.97) {
-		i++;
-	// for (int i = 0; i < K; i++) {					// loop generations
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
 		generate_boards<<<N, P>>>(boards, devStates, R);
 		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, ix, sum_occ, statistics);
 		num_blocks = (N + block_size - 1) / block_size;
-		average_fitness<<<num_blocks, block_size>>>(P, F, arr_avgfit, G);// , occ, sum_occ);
+		average_fitness<<<num_blocks, block_size>>>(P, F, arr_avgfit, G);
 		float gen_fitness = 0.0f;
 		float ind_fitness = 0.0f;
 		cudaDeviceSynchronize();
@@ -486,7 +483,10 @@ int main(int argc, char** argv) {
 			num_blocks = ((N / 4) + block_size - 1) / block_size;
 		}
 		crossover<<<num_blocks, block_size>>>(idx, arr_avgfit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness, sum_occ);
+		cudaDeviceSynchronize();
+		for (int il = 0; il < N * G; il++) sum_occ[il] = 0;
 		block_size = original_block_size;
+		i++;
 	}
 	printf("BEST INDIVIDUAL: %0.4f ", best_ind_fitness);
 	printf("BEST GEN FIT: %0.4f ", best_gen_fitness);
