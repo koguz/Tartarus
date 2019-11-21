@@ -218,7 +218,8 @@ __global__ void crossover(
 	curandState* state,
 	float ftmax,
 	float ftbar,
-	int* sum_occ
+	int* sum_occ,
+	bool my
 	) {
 	// id will be N/4, so we multiply by 4
 	int id = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
@@ -256,7 +257,13 @@ __global__ void crossover(
 	if (f[idx1] >= ftbar) pm1 = k * (ftmax - f[idx1]) / (ftmax - ftbar) / G;
 	if (f[idx2] >= ftbar) pm2 = k * (ftmax - f[idx2]) / (ftmax - ftbar) / G;
 	for (int i = 0; i < G; i++) {
-		if (curand(&localState) % 2 == 0) {
+		int v1 = 0; int v2 = 0;
+		if(my) {
+			v1 = sum_occ[idx1 * G + i];
+			v2 = sum_occ[idx2 * G + i];
+		}
+		// if (curand(&localState) % 2 == 0) {
+		if (v1 > v2 || (v1 == v2 && curand(&localState) % 2 == 0)) {
 			if (curand_uniform(&localState) <= pm1) {
 				pop[min1 * G + i].action = curand(&localState) % 3;
 				pop[min1 * G + i].next_state = curand(&localState) % S;
@@ -316,11 +323,12 @@ int main(int argc, char** argv) {
 	// various variables
 	bool writeToFile = true;			// write to file
 	int block_size = 256;				// number of threads in a block
-	int K = 1000;						// minimum number of generations
+	int K = 2000;						// minimum number of generations
 	int N = block_size * atoi(argv[1]);	// number of individuals in population
-	int P = 128;						// number of boards for each individual
 	int S = atoi(argv[2]);				// number of states
-	int L = atoi(argv[3]);				// run no
+	int P = 128 * atoi(argv[3]);		// number of boards for each individual
+	int T = atoi(argv[4]);				// my way, or fully random
+	int L = atoi(argv[5]);				// run no
 	int C = 383;						// number of combinations -- (int)pow(3, 8);
 	int G = S * C + 1;					// number of genes in the individual
 	int* Q;								// generate N number of random seeds on host
@@ -329,13 +337,14 @@ int main(int argc, char** argv) {
 	int M = 80;							// number of moves allowed
 	int R = 6;							// size of board
 	int* idx;
+	bool B = (T == 0) ? true : false;
 
 	char fname[50];
 	char bname[60];
 	char sname[50];
-	sprintf(fname, "txt/r-f-%d-%d-%d.txt", N, S, L);
-	sprintf(bname, "txt/b-f-%d-%d-%d", N, S, L);
-	sprintf(sname, "txt/s-f-%d-%d-%d", N, S, L);
+	sprintf(fname, "txt/r-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
+	sprintf(bname, "txt/b-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
+	sprintf(sname, "txt/s-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
 	FILE* results, * rsltall, * bestf, * statf;
 	
 	if (writeToFile) {
@@ -443,6 +452,9 @@ int main(int argc, char** argv) {
 	while(i < K || convergence > 0.97) {
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
+		cudaDeviceSynchronize();
+		for (int il = 0; il < N * G; il++) sum_occ[il] = 0;
+		cudaDeviceSynchronize();
 		generate_boards<<<N, P>>>(boards, devStates, R);
 		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, ix, sum_occ, statistics);
 		num_blocks = (N + block_size - 1) / block_size;
@@ -482,9 +494,7 @@ int main(int argc, char** argv) {
 		else {
 			num_blocks = ((N / 4) + block_size - 1) / block_size;
 		}
-		crossover<<<num_blocks, block_size>>>(idx, arr_avgfit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness, sum_occ);
-		cudaDeviceSynchronize();
-		for (int il = 0; il < N * G; il++) sum_occ[il] = 0;
+		crossover<<<num_blocks, block_size>>>(idx, arr_avgfit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness, sum_occ, B);
 		block_size = original_block_size;
 		i++;
 	}
@@ -495,7 +505,7 @@ int main(int argc, char** argv) {
 	cudaDeviceSynchronize();
 	if (writeToFile)
 	{
-		fprintf(rsltall, "%d,%d,%d,%0.4f,%0.4f,%d\n", N, S, L, best_gen_fitness, best_ind_fitness, dur);
+		fprintf(rsltall, "%d,%d,%d,%d,%d,%0.4f,%0.4f,%d\n", N, P, S, T, L, best_gen_fitness, best_ind_fitness, dur);
 		for (int i = 0; i < G; i++) {
 			fprintf(bestf, "%d %d ", best[i].action, best[i].next_state);
 		}
