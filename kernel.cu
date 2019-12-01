@@ -512,7 +512,10 @@ int main(int argc, char** argv) {
 		gen_fitness = gen_fitness / (float)N;
 		if (best_gen_fitness < gen_fitness)   
 			best_gen_fitness = gen_fitness;
-		printf(".");
+		// progress bar
+		if (i % 1000 == 0) printf("M");
+		else if (i % 100 == 0) printf("C");
+		else printf(".");
 		convergence = gen_fitness / ind_fitness;
 		if(writeToFile) fprintf(results, "%0.2f ", gen_fitness);
 		// shuffle... 
@@ -529,10 +532,10 @@ int main(int argc, char** argv) {
 		block_size = original_block_size;
 		i++;
 	}
-	printf("BEST INDIVIDUAL: %0.4f ", best_ind_fitness);
-	printf("BEST GEN FIT: %0.4f ", best_gen_fitness);
+	printf("\nBEST INDIVIDUAL: %0.4f ", best_ind_fitness);
+	printf("\nBEST GEN FIT: %0.4f ", best_gen_fitness);
 	dur = time(0) - dur;
-	printf("%d seconds\n", dur);
+	printf("\nCompleted in %d seconds\n", dur);
 	cudaDeviceSynchronize();
 	if (writeToFile)
 	{
