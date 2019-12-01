@@ -285,9 +285,13 @@ __global__ void crossover(
 			v2 = sum_occ[idx2 * G + i];
 		}
 		else if (option == 2) {
-			if (pop[idx1 * G + i].used != 0) v1 = (float)pop[idx1 * G + i].fitness / (float)pop[idx1 * G + i].used;
-			// if (v1 > 4 && pop[idx1 * G + i].used > 10) printf("%d / %d = %.2f \n", pop[idx1 * G + i].fitness, pop[idx1 * G + i].used, v1);
-			if (pop[idx2 * G + i].used != 0) v2 = (float)pop[idx2 * G + i].fitness / (float)pop[idx2 * G + i].used;
+			if (pop[idx1 * G + i].used != 0) 
+				v1 = (float)pop[idx1 * G + i].fitness / (float)pop[idx1 * G + i].used;
+			if (pop[idx2 * G + i].used != 0) 
+				v2 = (float)pop[idx2 * G + i].fitness / (float)pop[idx2 * G + i].used;
+			/*if (v1 < 7 && v2 < 7) {
+				v1 = 0; v2 = 0;
+			}*/
 		}
 		// if (curand(&localState) % 2 == 0) {
 		if (v1 > v2 || (v1 == v2 && curand(&localState) % 2 == 0)) {
