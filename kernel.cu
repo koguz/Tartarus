@@ -591,11 +591,12 @@ int main(int argc, char** argv) {
 
 		for (int i = 0; i < S; i++) {
 			for (int j = 0; j < C; j++) {
-				final_gene_fitness[j] += gene_fitness[i * C + j];
+				if (gene_fitness[i * C + j] > final_gene_fitness[j])
+					final_gene_fitness[j] = gene_fitness[i * C + j];
 			}
 		}
 		for (int i = 0; i < C; i++) {
-			fprintf(genef, "%0.4f ", final_gene_fitness[i]/(float)S);
+			fprintf(genef, "%0.4f ", final_gene_fitness[i]); // /(float)S
 		}
 
 		
