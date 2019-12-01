@@ -285,8 +285,9 @@ __global__ void crossover(
 			v2 = sum_occ[idx2 * G + i];
 		}
 		else if (option == 2) {
-			v1 = pop[idx1 * G + i].fitness / pop[idx1 * G + i].used;
-			v2 = pop[idx2 * G + i].fitness / pop[idx2 * G + i].used;
+			if (pop[idx1 * G + i].used != 0) v1 = (float)pop[idx1 * G + i].fitness / (float)pop[idx1 * G + i].used;
+			// if (v1 > 4 && pop[idx1 * G + i].used > 10) printf("%d / %d = %.2f \n", pop[idx1 * G + i].fitness, pop[idx1 * G + i].used, v1);
+			if (pop[idx2 * G + i].used != 0) v2 = (float)pop[idx2 * G + i].fitness / (float)pop[idx2 * G + i].used;
 		}
 		// if (curand(&localState) % 2 == 0) {
 		if (v1 > v2 || (v1 == v2 && curand(&localState) % 2 == 0)) {
@@ -346,6 +347,8 @@ void shuffle(int* arr, int S) {
 
 int main(int argc, char** argv) {	
 	//argv[1] = "5"; argv[2] = "10"; argv[3] = "11";
+	//1 4 1 0 1 
+	//argv[1] = "1"; argv[2] = "4"; argv[3] = "1"; argv[4] = "0"; argv[5] = "1";
 	time_t dur = time(0);
 	// generate N number of random values and pass them to GPU as initial seeds
 	srand(time(0));
@@ -372,16 +375,19 @@ int main(int argc, char** argv) {
 	char fname[50];
 	char bname[60];
 	char sname[50];
+	char gname[50];
 	sprintf(fname, "txt/r-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
 	sprintf(bname, "txt/b-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
 	sprintf(sname, "txt/s-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
-	FILE* results, * rsltall, * bestf, * statf;
+	sprintf(gname, "txt/f-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
+	FILE* results, * rsltall, * bestf, * statf, * genef;
 	
 	if (writeToFile) {
 		results = fopen(fname, "w");
 		rsltall = fopen("txt/results-f.csv", "a");
 		bestf = fopen(bname, "w");
 		statf = fopen(sname, "w");
+		genef = fopen(gname, "w");
 	}
 
 	gene* pop; 
@@ -474,6 +480,8 @@ int main(int argc, char** argv) {
 	cudaDeviceSynchronize(); // we need this so that the GPU can allocate memory for statistics and occ. 
 	for (int i = 0; i < N * C; i++) statistics[i] = 0;
 	for (int i = 0; i < N * G; i++) sum_occ[i] = 0;
+
+	float* gene_fitness = (float*)malloc(G * sizeof(float));
 	
 	float best_ind_fitness = 0.0f;		// BEST individual
 	float best_gen_fitness = 0.0f;		// BEST generation fitness
@@ -510,8 +518,31 @@ int main(int argc, char** argv) {
 		}
 
 		gen_fitness = gen_fitness / (float)N;
-		if (best_gen_fitness < gen_fitness)   
+		if (best_gen_fitness < gen_fitness) {
 			best_gen_fitness = gen_fitness;
+			// store the averages for this generation. 
+			for (int j = 0; j < N; j++) {
+				if (j > 0) {
+					for (int k = 0; k < G; k++) {
+						if (pop[j * G + k].used > 0)
+							gene_fitness[k] += (float)pop[j * G + k].fitness / (float)pop[j * G + k].used;
+						//printf("%f ", gene_fitness[k]);
+					}
+				}
+				else {
+					for (int k = 0; k < G; k++) {
+						if (pop[j * G + k].used > 0)
+							gene_fitness[k] = (float)pop[j * G + k].fitness / (float)pop[j * G + k].used;
+						else gene_fitness[k] = 0.0f;
+						//printf("%f ", gene_fitness[k]);
+					}
+				}
+			}
+			for (int k = 0; k < G; k++) {
+				gene_fitness[k] = gene_fitness[k] / (float)N;
+				// printf("(%f) ", gene_fitness[k]);
+			}
+		}
 		// progress bar
 		if (i % 1000 == 0) printf("M");
 		else if (i % 100 == 0) printf("C");
@@ -555,10 +586,24 @@ int main(int argc, char** argv) {
 			fprintf(statf, "%d ", final_statistics[i]);
 		}
 
+		float* final_gene_fitness = (float*)malloc(C * sizeof(float));
+		for (int i = 0; i < C; i++) final_gene_fitness[i] = 0.0f;
+
+		for (int i = 0; i < S; i++) {
+			for (int j = 0; j < C; j++) {
+				final_gene_fitness[j] += gene_fitness[i * C + j];
+			}
+		}
+		for (int i = 0; i < C; i++) {
+			fprintf(genef, "%0.4f ", final_gene_fitness[i]/(float)S);
+		}
+
+		
 		fclose(results);
 		fclose(rsltall);
 		fclose(bestf);
 		fclose(statf);
+		fclose(genef);
 	}
 
 	return 0;
