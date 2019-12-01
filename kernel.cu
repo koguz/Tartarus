@@ -11,6 +11,8 @@
 typedef struct gene_struct {
 	int next_state;
 	int action; 
+	int fitness;
+	int used;
 } gene;
 
 typedef struct position {
@@ -41,6 +43,8 @@ __global__ void init_population(gene* pop, int G, int S, curandState* state) {
 		else pop[i].action = 2;
 		//pop[i].action = curand(&localState) % 3;
 		pop[i].next_state = curand(&localState) % S;
+		pop[i].fitness = 0;
+		pop[i].used = 0;
 	}
 	state[id] = localState;
 }
@@ -107,7 +111,6 @@ __global__ void run_boards(
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
 	curandState localState = state[id]; // used to be blockIdx.x
-	
 
 	// get the individual
 	int ind = blockIdx.x * G; 
@@ -139,6 +142,11 @@ __global__ void run_boards(
 		break;
 	}
 
+	// Have to use this
+	const int X = 383 * 16 + 1;
+	bool used[X];
+	for (int i = 0; i < X; i++) used[i] = false;
+
 	int cs = pop[ind + G - 1].next_state;
 	for (int i = 0; i < M; i++) {  // perform M moves (default 80)
 		int cc = 0;
@@ -157,8 +165,15 @@ __global__ void run_boards(
 		}
 		cc = ix[(int)cct]; 
 		int action = pop[ind + (cs * C + cc)].action;
+		//if (pop[ind + (cs * C + cc)].used == 0) { 
+			// should occur very infrequently, therefore we should be safe.
+			// update! now it will occur frequently
+			// atomicAdd(&(pop[ind + (cs * C + cc)]).used, 1); 
+			// update! now it will not run at all... 
+		//}
 		cs = pop[ind + (cs * C + cc)].next_state;
 		statistics[blockIdx.x * C + cc]++;
+		used[cs * C + cc] = true;
 		// occ[id * G + cc]++;
 		// atomic
 		atomicAdd(&sum_occ[blockIdx.x * G + cc], 1);
@@ -206,6 +221,13 @@ __global__ void run_boards(
 		}
 	}
 	F[id] = f;
+	// store this for each gene struct
+	for (int i = 0; i < G; i++) {
+		if (used[i]) {
+			atomicAdd(&(pop[ind + i]).fitness, f);
+			atomicAdd(&(pop[ind + i]).used, 1);
+		}
+	}
 	state[id] = localState;
 }
 
@@ -219,7 +241,7 @@ __global__ void crossover(
 	float ftmax,
 	float ftbar,
 	int* sum_occ,
-	bool my
+	int option
 	) {
 	// id will be N/4, so we multiply by 4
 	int id = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
@@ -257,10 +279,14 @@ __global__ void crossover(
 	if (f[idx1] >= ftbar) pm1 = k * (ftmax - f[idx1]) / (ftmax - ftbar) / G;
 	if (f[idx2] >= ftbar) pm2 = k * (ftmax - f[idx2]) / (ftmax - ftbar) / G;
 	for (int i = 0; i < G; i++) {
-		int v1 = 0; int v2 = 0;
-		if(my) {
+		float v1 = 0; float v2 = 0;
+		if(option == 1) {
 			v1 = sum_occ[idx1 * G + i];
 			v2 = sum_occ[idx2 * G + i];
+		}
+		else if (option == 2) {
+			v1 = pop[idx1 * G + i].fitness / pop[idx1 * G + i].used;
+			v2 = pop[idx2 * G + i].fitness / pop[idx2 * G + i].used;
 		}
 		// if (curand(&localState) % 2 == 0) {
 		if (v1 > v2 || (v1 == v2 && curand(&localState) % 2 == 0)) {
@@ -299,6 +325,10 @@ __global__ void crossover(
 				pop[min2 * G + i].next_state = pop[idx1 * G + i].next_state;
 			}
 		}
+		pop[idx1 * G + i].fitness = 0; pop[idx1 * G + i].used = 0;
+		pop[idx2 * G + i].fitness = 0; pop[idx2 * G + i].used = 0;
+		pop[min1 * G + i].fitness = 0; pop[min1 * G + i].used = 0;
+		pop[min2 * G + i].fitness = 0; pop[min2 * G + i].used = 0;
 	}
 	state[id] = localState;
 }
@@ -327,7 +357,7 @@ int main(int argc, char** argv) {
 	int N = block_size * atoi(argv[1]);	// number of individuals in population
 	int S = atoi(argv[2]);				// number of states
 	int P = 128 * atoi(argv[3]);		// number of boards for each individual
-	int T = atoi(argv[4]);				// my way, or fully random
+	int T = atoi(argv[4]);				// 0 fully random, 1 sum occ, 2 gene fitness
 	int L = atoi(argv[5]);				// run no
 	int C = 383;						// number of combinations -- (int)pow(3, 8);
 	int G = S * C + 1;					// number of genes in the individual
@@ -337,7 +367,7 @@ int main(int argc, char** argv) {
 	int M = 80;							// number of moves allowed
 	int R = 6;							// size of board
 	int* idx;
-	bool B = (T == 0) ? true : false;
+	// bool B = (T == 0) ? true : false;
 
 	char fname[50];
 	char bname[60];
@@ -449,6 +479,7 @@ int main(int argc, char** argv) {
 	float best_gen_fitness = 0.0f;		// BEST generation fitness
 	float convergence = 0.0f;
 	int i = 0;
+
 	while(i < K || convergence > 0.97) {
 		// N number of blocks, each having P number of threads... 
 		// first generate N * P number of boards 
@@ -494,7 +525,7 @@ int main(int argc, char** argv) {
 		else {
 			num_blocks = ((N / 4) + block_size - 1) / block_size;
 		}
-		crossover<<<num_blocks, block_size>>>(idx, arr_avgfit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness, sum_occ, B);
+		crossover<<<num_blocks, block_size>>>(idx, arr_avgfit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness, sum_occ, T);
 		block_size = original_block_size;
 		i++;
 	}
