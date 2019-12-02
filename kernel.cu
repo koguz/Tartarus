@@ -11,6 +11,7 @@
 typedef struct gene_struct {
 	int next_state;
 	int action; 
+	int m_fitness;
 	int fitness;
 	int used;
 } gene;
@@ -44,6 +45,7 @@ __global__ void init_population(gene* pop, int G, int S, curandState* state) {
 		//pop[i].action = curand(&localState) % 3;
 		pop[i].next_state = curand(&localState) % S;
 		pop[i].fitness = 0;
+		pop[i].m_fitness = 0;
 		pop[i].used = 0;
 	}
 	state[id] = localState;
@@ -227,6 +229,15 @@ __global__ void run_boards(
 			atomicAdd(&(pop[ind + i]).fitness, f);
 			atomicAdd(&(pop[ind + i]).used, 1);
 		}
+		while (true) {
+			int tm = pop[ind + i].m_fitness;
+			if (f > tm) {
+				atomicCAS(&(pop[ind + i]).m_fitness, tm, f);
+			}
+			else {
+				break;
+			}
+		}
 	}
 	state[id] = localState;
 }
@@ -285,14 +296,16 @@ __global__ void crossover(
 			v2 = sum_occ[idx2 * G + i];
 		}
 		else if (option == 2) {
-			if (pop[idx1 * G + i].used != 0) 
-				v1 = (float)pop[idx1 * G + i].fitness / (float)pop[idx1 * G + i].used;
-			if (pop[idx2 * G + i].used != 0) 
-				v2 = (float)pop[idx2 * G + i].fitness / (float)pop[idx2 * G + i].used;
+			if (pop[idx1 * G + i].used != 0)
+				v1 = pop[idx1 * G + i].m_fitness;
+				// v1 = (float)pop[idx1 * G + i].fitness / (float)pop[idx1 * G + i].used;
+			if (pop[idx2 * G + i].used != 0)
+				v2 = pop[idx2 * G + i].m_fitness;
+				// v2 = (float)pop[idx2 * G + i].fitness / (float)pop[idx2 * G + i].used;
 			/*if (v1 < 7 && v2 < 7) {
 				v1 = 0; v2 = 0;
 			}*/
-		}
+		} 
 		// if (curand(&localState) % 2 == 0) {
 		if (v1 > v2 || (v1 == v2 && curand(&localState) % 2 == 0)) {
 			if (curand_uniform(&localState) <= pm1) {
