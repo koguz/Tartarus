@@ -343,10 +343,11 @@ __global__ void crossover(
 				pop[min2 * G + i].next_state = pop[idx1 * G + i].next_state;
 			}
 		}
-		pop[idx1 * G + i].fitness = 0; pop[idx1 * G + i].used = 0;
-		pop[idx2 * G + i].fitness = 0; pop[idx2 * G + i].used = 0;
-		pop[min1 * G + i].fitness = 0; pop[min1 * G + i].used = 0;
-		pop[min2 * G + i].fitness = 0; pop[min2 * G + i].used = 0;
+		pop[idx1 * G + i].fitness = 0; pop[idx1 * G + i].used = 0; pop[idx1 * G + i].m_fitness = 0;
+		pop[idx2 * G + i].fitness = 0; pop[idx2 * G + i].used = 0; pop[idx2 * G + i].m_fitness = 0;
+		pop[min1 * G + i].fitness = 0; pop[min1 * G + i].used = 0; pop[min1 * G + i].m_fitness = 0;
+		pop[min2 * G + i].fitness = 0; pop[min2 * G + i].used = 0; pop[min2 * G + i].m_fitness = 0;
+		
 	}
 	state[id] = localState;
 }

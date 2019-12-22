@@ -5,6 +5,8 @@ VisualStudioVersion = 16.0.29102.190
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Tartarus00", "Tartarus00.vcxproj", "{5F5C6456-361E-4964-9104-4DE28A53B81C}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Tartarus01_Tester", "..\Tartarus01_Tester\Tartarus01_Tester.vcxproj", "{8F024185-4CE8-4863-9DB7-A89E1B53D769}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -15,6 +17,10 @@ Global
 		{5F5C6456-361E-4964-9104-4DE28A53B81C}.Debug|x64.Build.0 = Debug|x64
 		{5F5C6456-361E-4964-9104-4DE28A53B81C}.Release|x64.ActiveCfg = Release|x64
 		{5F5C6456-361E-4964-9104-4DE28A53B81C}.Release|x64.Build.0 = Release|x64
+		{8F024185-4CE8-4863-9DB7-A89E1B53D769}.Debug|x64.ActiveCfg = Debug|x64
+		{8F024185-4CE8-4863-9DB7-A89E1B53D769}.Debug|x64.Build.0 = Debug|x64
+		{8F024185-4CE8-4863-9DB7-A89E1B53D769}.Release|x64.ActiveCfg = Release|x64
+		{8F024185-4CE8-4863-9DB7-A89E1B53D769}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
