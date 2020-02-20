@@ -108,7 +108,8 @@ __global__ void run_boards(
 	int* F,
 	int* ix,
 	int* sum_occ,
-	int* statistics) {
+	int* statistics) { //,
+	//int* nstats) {
 	// blockIdx.x is the individual out of N individuals
 	// threadIdx.x is the board out of P boards for that individual... 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -152,20 +153,31 @@ __global__ void run_boards(
 	int cs = pop[ind + G - 1].next_state;
 	for (int i = 0; i < M; i++) {  // perform M moves (default 80)
 		int cc = 0;
-		float cct = 0.0f;
+		//float cct = 0.0f;
+		int cct2 = 0;
 		for (int m = 0; m < 8; m++) {  // m is for the 8-neighborhood
 			int cx = cp.x + cd.x; int cy = cp.y + cd.y; 
 			if (cx < 0 || cy < 0 || cx >= R || cy >= R) {
 				// then it is a wall (wall = 2)
 				// cc += powf(3, m) * 2; // this has rounding errors... 
-				cct += powf(3, m) * 2.0f;
+				int tt = 1;
+				for (int j = 0; j < m; j++) tt = tt * 3;
+				cct2 += tt * 2;
+				//cct += powf(3, m) * 2.0f;
 			}
 			else {
-				cct += powf(3, m) * (float)boards[brd + (cx * R + cy)];
+				int tt = 1;
+				for (int j = 0; j < m; j++) tt = tt * 3;
+				cct2 += tt * boards[brd + (cx * R + cy)];
+				//cct += powf(3, m) * (float)boards[brd + (cx * R + cy)];
 			}
 			rotate_ccw(&cd, 4);
 		}
-		cc = ix[(int)cct]; 
+		//if ((int)cct != cct2) {
+			//printf("%d != %d\n", (int)cct, cct2);
+		//}
+		//cc = ix[(int)cct]; 
+		cc = ix[cct2];
 		int action = pop[ind + (cs * C + cc)].action;
 		//if (pop[ind + (cs * C + cc)].used == 0) { 
 			// should occur very infrequently, therefore we should be safe.
@@ -179,6 +191,7 @@ __global__ void run_boards(
 		// occ[id * G + cc]++;
 		// atomic
 		atomicAdd(&sum_occ[blockIdx.x * G + cc], 1);
+		//atomicAdd(&nstats[cct2], 1);
 
 		int cx, cy, dx, dy;
 		switch (action) {
@@ -375,7 +388,7 @@ int main(int argc, char** argv) {
 	bool writeToFile = true;			// write to file
 	int block_size = 256;				// number of threads in a block
 	int K = 2000;						// minimum number of generations
-	int N = block_size * atoi(argv[1]);	// number of individuals in population
+	int N = block_size* atoi(argv[1]);	// number of individuals in population
 	int S = atoi(argv[2]);				// number of states
 	int P = 128 * atoi(argv[3]);		// number of boards for each individual
 	int T = atoi(argv[4]);				// 0 fully random, 1 sum occ, 2 gene fitness
@@ -394,11 +407,13 @@ int main(int argc, char** argv) {
 	char bname[60];
 	char sname[50];
 	char gname[50];
+	//char nname[50];
 	sprintf(fname, "txt/r-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
 	sprintf(bname, "txt/b-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
 	sprintf(sname, "txt/s-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
 	sprintf(gname, "txt/f-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
-	FILE* results, * rsltall, * bestf, * statf, * genef;
+	//sprintf(nname, "txt/N-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
+	FILE* results, * rsltall, * bestf, * statf, * genef, * nstatf;
 	
 	if (writeToFile) {
 		results = fopen(fname, "w");
@@ -406,6 +421,7 @@ int main(int argc, char** argv) {
 		bestf = fopen(bname, "w");
 		statf = fopen(sname, "w");
 		genef = fopen(gname, "w");
+		//nstatf = fopen(nname, "w");
 	}
 
 	gene* pop; 
@@ -422,7 +438,7 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	int iidx[383] = { 0,1,3,4,9,10,12,13,27,28,30,31,36,37,39,40,78,79,81,82,84,85,90,91,93,94,108,109,111,112,117,118,120,121,159,160,242,243,245,246,251,252,254,255,270,271,273,274,279,280,282,283,321,322,324,325,327,328,333,334,336,337,351,352,354,355,360,361,363,364,402,403,702,703,705,706,711,712,714,715,726,727,729,730,732,733,738,739,741,742,756,757,759,760,765,766,768,769,807,808,810,811,813,814,819,820,822,823,837,838,840,841,846,847,849,850,888,972,973,975,976,981,982,984,985,999,1000,1002,1003,1008,1009,1011,1012,1050,1051,1053,1054,1056,1057,1062,1063,1065,1066,1080,1081,1083,1084,1089,1090,1092,1131,1431,1432,1434,1435,1440,1443,1455,2187,2188,2190,2191,2196,2197,2199,2200,2214,2215,2217,2218,2223,2224,2226,2227,2265,2266,2268,2269,2271,2272,2277,2278,2280,2281,2295,2296,2298,2299,2304,2305,2307,2308,2346,2347,2430,2431,2433,2434,2439,2440,2442,2443,2457,2458,2460,2461,2466,2467,2469,2470,2508,2509,2511,2512,2514,2515,2520,2521,2523,2524,2538,2539,2541,2542,2547,2548,2550,2589,2590,2889,2890,2892,2893,2898,2899,2901,2902,2913,2914,2916,2917,2919,2920,2925,2926,2928,2929,2943,2944,2946,2947,2952,2953,2955,2956,2994,2995,2997,2998,3000,3001,3006,3007,3009,3010,3024,3025,3027,3028,3033,3034,3036,3075,3159,3160,3162,3163,3168,3169,3171,3172,3186,3187,3189,3190,3195,3196,3198,3237,3238,3240,3241,3243,3244,3249,3250,3252,3267,3268,3270,3276,3318,3618,3619,3621,3622,3627,3630,3642,4382,4391,4409,4418,4454,4463,4472,4490,4499,4535,4625,4634,4652,4661,4697,4706,4715,4733,4742,4778,5111,5120,5138,5147,5183,5192,5219,5354,5363,5381,5390,5426,5435,5462,6318,6319,6321,6322,6326,6327,6328,6330,6331,6335,6345,6346,6348,6349,6353,6354,6355,6357,6358,6362,6399,6400,6402,6403,6407,6408,6411,6426,6427,6429,6430,6434,6435,6438,6534,6535,6537,6538,6543,6546 };
+	int iidx[383] = { 0, 1, 3, 4, 9, 10, 12, 13, 27, 28, 30, 31, 36, 37, 39, 40, 78, 79, 81, 82, 84, 85, 90, 91, 93, 94, 108, 109, 111, 112, 117, 118, 120, 121, 159, 160, 243, 244, 246, 247, 252, 253, 255, 256, 270, 271, 273, 274, 279, 280, 282, 283, 321, 322, 324, 325, 327, 328, 333, 334, 336, 337, 351, 352, 354, 355, 360, 361, 363, 364, 402, 403, 702, 703, 705, 706, 711, 712, 714, 715, 726, 727, 729, 730, 732, 733, 738, 739, 741, 742, 756, 757, 759, 760, 765, 766, 768, 769, 807, 808, 810, 811, 813, 814, 819, 820, 822, 823, 837, 838, 840, 841, 846, 847, 849, 850, 888, 972, 973, 975, 976, 981, 982, 984, 985, 999, 1000, 1002, 1003, 1008, 1009, 1011, 1012, 1050, 1051, 1053, 1054, 1056, 1057, 1062, 1063, 1065, 1066, 1080, 1081, 1083, 1084, 1089, 1090, 1092, 1131, 1431, 1432, 1434, 1435, 1440, 1443, 1455, 2187, 2188, 2190, 2191, 2196, 2197, 2199, 2200, 2214, 2215, 2217, 2218, 2223, 2224, 2226, 2227, 2265, 2266, 2268, 2269, 2271, 2272, 2277, 2278, 2280, 2281, 2295, 2296, 2298, 2299, 2304, 2305, 2307, 2308, 2346, 2347, 2430, 2431, 2433, 2434, 2439, 2440, 2442, 2443, 2457, 2458, 2460, 2461, 2466, 2467, 2469, 2470, 2508, 2509, 2511, 2512, 2514, 2515, 2520, 2521, 2523, 2524, 2538, 2539, 2541, 2542, 2547, 2548, 2550, 2589, 2590, 2889, 2890, 2892, 2893, 2898, 2899, 2901, 2902, 2913, 2914, 2916, 2917, 2919, 2920, 2925, 2926, 2928, 2929, 2943, 2944, 2946, 2947, 2952, 2953, 2955, 2956, 2994, 2995, 2997, 2998, 3000, 3001, 3006, 3007, 3009, 3010, 3024, 3025, 3027, 3028, 3033, 3034, 3036, 3075, 3159, 3160, 3162, 3163, 3168, 3169, 3171, 3172, 3186, 3187, 3189, 3190, 3195, 3196, 3198, 3237, 3238, 3240, 3241, 3243, 3244, 3249, 3250, 3252, 3267, 3268, 3270, 3276, 3318, 3618, 3619, 3621, 3622, 3627, 3630, 3642, 4382, 4391, 4409, 4418, 4454, 4463, 4472, 4490, 4499, 4535, 4625, 4634, 4652, 4661, 4697, 4706, 4715, 4733, 4742, 4778, 5111, 5120, 5138, 5147, 5183, 5192, 5219, 5354, 5363, 5381, 5390, 5426, 5435, 5462, 6318, 6319, 6321, 6322, 6326, 6327, 6328, 6330, 6331, 6335, 6345, 6346, 6348, 6349, 6353, 6354, 6355, 6357, 6358, 6362, 6399, 6400, 6402, 6403, 6407, 6408, 6411, 6426, 6427, 6429, 6430, 6434, 6435, 6438, 6534, 6535, 6537, 6538, 6543, 6546 };
 	int* ix;
 	cudaStatus = cudaMallocManaged(&ix, 6561 * sizeof(int));
 	if (cudaStatus != cudaSuccess) {
@@ -489,6 +505,16 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
+	/*int* nstats;
+	cudaStatus = cudaMallocManaged(&nstats, 6561 * sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (nstats) ");
+		return -1;
+	}
+	cudaDeviceSynchronize();
+	for (int i = 0; i < 6561; i++) nstats[i] = 0;
+	cudaDeviceSynchronize();*/
+
 	int* sum_occ;
 	cudaStatus = cudaMallocManaged(&sum_occ, N * G * sizeof(int));
 	if (cudaStatus != cudaSuccess) {
@@ -513,7 +539,7 @@ int main(int argc, char** argv) {
 		for (int il = 0; il < N * G; il++) sum_occ[il] = 0;
 		cudaDeviceSynchronize();
 		generate_boards<<<N, P>>>(boards, devStates, R);
-		run_boards<<<N, P>>>(pop, boards, devStates, R, G, M, C, F, ix, sum_occ, statistics);
+		run_boards <<<N, P>>> (pop, boards, devStates, R, G, M, C, F, ix, sum_occ, statistics);// , nstats);
 		num_blocks = (N + block_size - 1) / block_size;
 		average_fitness<<<num_blocks, block_size>>>(P, F, arr_avgfit, G);
 		float gen_fitness = 0.0f;
@@ -617,12 +643,16 @@ int main(int argc, char** argv) {
 			fprintf(genef, "%0.4f ", final_gene_fitness[i]); // /(float)S
 		}
 
+		//for (int i = 0; i < 6561; i++)
+		//	fprintf(nstatf, "%d ", nstats[i]);
+
 		
 		fclose(results);
 		fclose(rsltall);
 		fclose(bestf);
 		fclose(statf);
 		fclose(genef);
+		//fclose(nstatf);
 	}
 
 	return 0;
