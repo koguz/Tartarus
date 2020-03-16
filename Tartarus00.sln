@@ -7,6 +7,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Tartarus00", "Tartarus00.vc
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Tartarus01_Tester", "..\Tartarus01_Tester\Tartarus01_Tester.vcxproj", "{8F024185-4CE8-4863-9DB7-A89E1B53D769}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Tartarus02_Cuda10.2", "..\Tartarus02_Cuda10.2\Tartarus02_Cuda10.2.vcxproj", "{DB8FD654-BD28-4A5C-942F-04E1A888D8A7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,10 @@ Global
 		{8F024185-4CE8-4863-9DB7-A89E1B53D769}.Debug|x64.Build.0 = Debug|x64
 		{8F024185-4CE8-4863-9DB7-A89E1B53D769}.Release|x64.ActiveCfg = Release|x64
 		{8F024185-4CE8-4863-9DB7-A89E1B53D769}.Release|x64.Build.0 = Release|x64
+		{DB8FD654-BD28-4A5C-942F-04E1A888D8A7}.Debug|x64.ActiveCfg = Debug|x64
+		{DB8FD654-BD28-4A5C-942F-04E1A888D8A7}.Debug|x64.Build.0 = Debug|x64
+		{DB8FD654-BD28-4A5C-942F-04E1A888D8A7}.Release|x64.ActiveCfg = Release|x64
+		{DB8FD654-BD28-4A5C-942F-04E1A888D8A7}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
