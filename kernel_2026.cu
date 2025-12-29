@@ -98,7 +98,7 @@ __global__ void __launch_bounds__(512) init_population(gene* pop, int G, int S, 
     state[id] = localState;
 }
 
-__global__ void __launch_bounds__(512) generate_boards(int* boards, curandState* state, int R) {
+__global__ void __launch_bounds__(1024) generate_boards(int* boards, curandState* state, int R) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     curandState localState = state[id];
     int s = id * R * R;
@@ -135,8 +135,8 @@ __global__ void __launch_bounds__(512) generate_boards(int* boards, curandState*
 }
 
 // --- OPTIMIZED RUN KERNEL ---
-// Launch bounds: 512 threads max, aim for 2 blocks per SM for RTX 5070
-__global__ void __launch_bounds__(512, 2) run_boards_optimized(
+// Launch bounds: 1024 threads max for P up to 1024
+__global__ void __launch_bounds__(1024, 1) run_boards_optimized(
     gene* pop,
     int* boards,
     curandState* state,

@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <time.h>
 #include <cuda.h>
@@ -159,11 +160,31 @@ __global__ void run_boards(
 
 int main(int argc, char** argv) {
 	const int N = 1869;  // unique board layouts from realboard.txt
-	int N1 = 256 * atoi(argv[1]);
-	int S = atoi(argv[2]);
-	int P = 128 * atoi(argv[3]);
-	int T1 = atoi(argv[4]);
-	int L = atoi(argv[5]);
+
+	// New simple mode: kernel_test_all.exe <filename> <S>
+	// Old mode: kernel_test_all.exe <N1> <S> <P> <T1> <L>
+	char iname[256];
+	int S;
+
+	if (argc == 3) {
+		// Simple mode: direct filename
+		strcpy(iname, argv[1]);
+		S = atoi(argv[2]);
+	} else if (argc == 6) {
+		// Legacy mode
+		int N1 = 256 * atoi(argv[1]);
+		S = atoi(argv[2]);
+		int P = 128 * atoi(argv[3]);
+		int T1 = atoi(argv[4]);
+		int L = atoi(argv[5]);
+		sprintf(iname, "txt/b-%d-%d-%d-%d-%d.txt", N1, P, S, T1, L);
+	} else {
+		printf("Usage: %s <filename> <S>\n", argv[0]);
+		printf("   or: %s <N1> <S> <P> <T1> <L>\n", argv[0]);
+		return -1;
+	}
+
+	printf("Testing solution: %s (S=%d)\n", iname, S);
 
 	char* boards;
 	//printf("int: %d\n, char: %d\n, bool %d\n", sizeof(int), sizeof(char), sizeof(bool));
@@ -195,12 +216,11 @@ int main(int argc, char** argv) {
 	}
 	fclose(test);
 
-	// get both file name and number of sizes as arguments to main... 
-	//char iname[100] = argv[1]; // "b-1280-128-8-1-1.txt";
-	char iname[100];
-	sprintf(iname, "txt/b-%d-%d-%d-%d-%d.txt", N1, P, S, T1, L);
-	FILE* ind = fopen(iname, "r");  // argv[1]
-	//int S = atoi(argv[2]); // 12;  // atoi(argv[2]);
+	FILE* ind = fopen(iname, "r");
+	if (!ind) {
+		printf("Error: Cannot open %s\n", iname);
+		return -1;
+	}
 	int C = 383;
 
 	gene* solution;
@@ -256,10 +276,13 @@ int main(int argc, char** argv) {
 	run_boards<<<num_blocks, block_size>>>(solution, boards, scores, ix, G, S, state_counts);
 	cudaDeviceSynchronize();
 
-	char rname[100];
-	sprintf(rname, "results_b-%d-%d-%d-%d-%d.txt", N1, P, S, T1, L);
-	//sprintf(rname, "results_%s", argv[1]);
-	
+	char rname[256];
+	sprintf(rname, "results_%s", iname);
+	// Replace path separators with underscores
+	for (int j = 0; rname[j]; j++) {
+		if (rname[j] == '/' || rname[j] == '\\') rname[j] = '_';
+	}
+
 	FILE* results = fopen(rname, "w");
 	int s = 0;
 	for (int i = 0; i < N * 40; i++) {
@@ -278,7 +301,7 @@ int main(int argc, char** argv) {
 	}
 
 	FILE* arslt = fopen("complete_results.csv", "a");
-	fprintf(arslt, "%d,%d,%d,%d,%d,%0.4f\n", N1, P, S, T1, L, (float)s / (float)(N * 40));
+	fprintf(arslt, "%s,%d,%0.4f\n", iname, S, (float)s / (float)(N * 40));
 	fclose(arslt);
 
 	cudaFree(state_counts);
