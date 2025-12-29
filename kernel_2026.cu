@@ -508,6 +508,8 @@ int main(int argc, char** argv) {
     }
 
     // --- RESULTS ---
+    cudaDeviceSynchronize();  // Sync GPU memory before CPU access
+
     printf("\n\nFinished!\nBest Individual: %.4f\nBest Gen Mean: %.4f\n", best_ind_fitness, best_gen_fitness);
     printf("Time: %lld seconds\n", time(0) - start);
 

@@ -48,7 +48,9 @@ __global__ void run_boards(
 	char* boards,
 	char* scores,
 	int* ix,
-	int G
+	int G,
+	int S,
+	unsigned long long* state_counts
 ) {
 	int index = blockIdx.x * blockDim.x + threadIdx.x;
 	const int M = 1869 * 10 * 4;  // 74,760 total configurations
@@ -89,6 +91,9 @@ __global__ void run_boards(
 
 	// Run 80 moves
 	for (int i = 0; i < 80; i++) {
+		// Count state usage
+		atomicAdd(&state_counts[cs], 1ULL);
+
 		// Compute sensor input using lookup tables (no trig!)
 		int cc = 0;
 		for (int m = 0; m < 8; m++) {
@@ -229,6 +234,15 @@ int main(int argc, char** argv) {
 	for (int i = 0; i < 383; i++) ix[iidx[i]] = i;  // create the inverted index
 
 
+	// Allocate state usage counters
+	unsigned long long* state_counts;
+	cudaStatus = cudaMallocManaged(&state_counts, S * sizeof(unsigned long long));
+	if (cudaStatus != cudaSuccess) {
+		printf("error in initialization of cudaMallocManaged (state_counts)\n");
+		return -1;
+	}
+	for (int i = 0; i < S; i++) state_counts[i] = 0;
+
 	// we are ready.
 	// for each board, there should be 10 empty spaces, we can start at those spaces
 	// each time with a different direction...
@@ -236,10 +250,10 @@ int main(int argc, char** argv) {
 	cudaDeviceSynchronize(); // so that the managed memories are ready.
 	// 1869 boards * 4 directions * 10 positions = 74,760 total configurations
 	int block_size = 1024;
-	int T = N * 4 * 10; 
+	int T = N * 4 * 10;
 	int num_blocks = (T + block_size - 1) / block_size;
-	printf("%d -> %d", num_blocks, block_size);
-	run_boards<<<num_blocks, block_size>>>(solution, boards, scores, ix, G);
+	printf("%d -> %d\n", num_blocks, block_size);
+	run_boards<<<num_blocks, block_size>>>(solution, boards, scores, ix, G, S, state_counts);
 	cudaDeviceSynchronize();
 
 	char rname[100];
@@ -253,11 +267,20 @@ int main(int argc, char** argv) {
 		s += scores[i];
 	}
 	fclose(results);
-	printf("average: %.4f", (float)s / (float)(N * 40));
+	printf("average: %.4f\n", (float)s / (float)(N * 40));
+
+	// Print state usage statistics
+	unsigned long long total_moves = (unsigned long long)N * 40 * 80;  // 74,760 configs * 80 moves
+	printf("\nState usage (total moves: %llu):\n", total_moves);
+	for (int i = 0; i < S; i++) {
+		float pct = 100.0f * (float)state_counts[i] / (float)total_moves;
+		printf("  State %2d: %12llu (%6.2f%%)\n", i, state_counts[i], pct);
+	}
 
 	FILE* arslt = fopen("complete_results.csv", "a");
 	fprintf(arslt, "%d,%d,%d,%d,%d,%0.4f\n", N1, P, S, T1, L, (float)s / (float)(N * 40));
 	fclose(arslt);
 
+	cudaFree(state_counts);
 	return 0;
 }
