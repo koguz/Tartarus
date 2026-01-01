@@ -294,7 +294,8 @@ int main(int argc, char** argv) {
 		}
 	}
 	fclose(results);
-	printf("average: %.4f\n", (float)s / (float)(N * 40));
+	float avg_score = (float)s / (float)(N * 40);
+	printf("average: %.4f\n", avg_score);
 
 	// Print score histogram
 	int total_boards = N * 40;
@@ -315,8 +316,40 @@ int main(int argc, char** argv) {
 		printf("  State %2d: %12llu (%6.2f%%)\n", i, state_counts[i], pct);
 	}
 
+	// Save score distribution to file (txt/sc-*)
+	char scname[256];
+	sprintf(scname, "txt/sc_%s", iname);
+	// Replace path separators with underscores (skip "txt/")
+	for (char* p = scname + 4; *p; p++) if (*p == '/' || *p == '\\') *p = '_';
+	FILE* scfile = fopen(scname, "w");
+	if (scfile) {
+		fprintf(scfile, "score,count,percentage\n");
+		for (int i = 0; i <= 10; i++) {
+			fprintf(scfile, "%d,%d,%.4f\n", i, score_histogram[i], 100.0f * score_histogram[i] / total_boards);
+		}
+		fprintf(scfile, "average,%.4f\n", avg_score);
+		fclose(scfile);
+		printf("\nSaved: %s\n", scname);
+	}
+
+	// Save state distribution to file (txt/st-*)
+	char stname[256];
+	sprintf(stname, "txt/st_%s", iname);
+	// Replace path separators with underscores (skip "txt/")
+	for (char* p = stname + 4; *p; p++) if (*p == '/' || *p == '\\') *p = '_';
+	FILE* stfile = fopen(stname, "w");
+	if (stfile) {
+		fprintf(stfile, "state,count,percentage\n");
+		for (int i = 0; i < S; i++) {
+			float pct = 100.0f * (float)state_counts[i] / (float)total_moves;
+			fprintf(stfile, "%d,%llu,%.4f\n", i, state_counts[i], pct);
+		}
+		fclose(stfile);
+		printf("Saved: %s\n", stname);
+	}
+
 	FILE* arslt = fopen("complete_results.csv", "a");
-	fprintf(arslt, "%s,%d,%0.4f\n", iname, S, (float)s / (float)(N * 40));
+	fprintf(arslt, "%s,%d,%0.4f\n", iname, S, avg_score);
 	fclose(arslt);
 
 	cudaFree(state_counts);

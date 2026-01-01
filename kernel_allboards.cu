@@ -367,6 +367,7 @@ int main(int argc, char** argv) {
         printf("Error: Cannot create output files. Make sure 'txt' directory exists.\n");
         return -1;
     }
+    fprintf(results, "generation,best,average\n");  // CSV header
 
     // Initialize
     int block_size = 256;
@@ -420,7 +421,7 @@ int main(int argc, char** argv) {
             best_gen_fitness = gen_avg;
         }
 
-        if (gen % 10 == 0) {
+        if (gen % 10 == 0 || gen == K - 1) {
             printf("Gen %d: Best=%.4f Avg=%.4f (all %d boards)\n", gen, gen_best, gen_avg, TOTAL_CONFIGS);
             fprintf(results, "%d,%.4f,%.4f\n", gen, gen_best, gen_avg);
             fflush(results);
