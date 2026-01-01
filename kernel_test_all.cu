@@ -285,12 +285,27 @@ int main(int argc, char** argv) {
 
 	FILE* results = fopen(rname, "w");
 	int s = 0;
+	int score_histogram[11] = {0};  // scores 0-10
 	for (int i = 0; i < N * 40; i++) {
 		fprintf(results, "%d ", (int)scores[i]);
 		s += scores[i];
+		if (scores[i] >= 0 && scores[i] <= 10) {
+			score_histogram[(int)scores[i]]++;
+		}
 	}
 	fclose(results);
 	printf("average: %.4f\n", (float)s / (float)(N * 40));
+
+	// Print score histogram
+	int total_boards = N * 40;
+	printf("\nScore distribution (out of %d boards):\n", total_boards);
+	for (int i = 10; i >= 0; i--) {
+		float pct = 100.0f * score_histogram[i] / total_boards;
+		int bar_len = (int)(pct / 2);  // 50 chars = 100%
+		printf("  Score %2d: %6d (%5.2f%%) ", i, score_histogram[i], pct);
+		for (int b = 0; b < bar_len; b++) printf("#");
+		printf("\n");
+	}
 
 	// Print state usage statistics
 	unsigned long long total_moves = (unsigned long long)N * 40 * 80;  // 74,760 configs * 80 moves
