@@ -340,3 +340,8 @@ ASALocalRun/
 healthchecksdb
 *.txt
 *.csv
+*.exe
+*.exp 
+*.lib
+*.dll
+*.pdf
