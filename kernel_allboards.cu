@@ -357,10 +357,10 @@ int main(int argc, char** argv) {
     memcpy(d_boards, h_boards, NUM_BOARDS * 36 * sizeof(char));
     free(h_boards);
 
-    // File setup
+    // File setup (includes K in filename to avoid overwrites)
     char fname[64], bname[64];
-    sprintf(fname, "txt/r-all-%d-%d-%d.txt", N, S, L);
-    sprintf(bname, "txt/b-all-%d-%d-%d.txt", N, S, L);
+    sprintf(fname, "txt/r-all-%d-%d-%d-%d.txt", N, S, K, L);
+    sprintf(bname, "txt/b-all-%d-%d-%d-%d.txt", N, S, K, L);
     FILE* results = fopen(fname, "w");
     FILE* bestf = fopen(bname, "w");
     if (!results || !bestf) {

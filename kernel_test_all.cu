@@ -348,8 +348,24 @@ int main(int argc, char** argv) {
 		printf("Saved: %s\n", stname);
 	}
 
-	FILE* arslt = fopen("complete_results.csv", "a");
-	fprintf(arslt, "%s,%d,%0.4f\n", iname, S, avg_score);
+	// Parse N, K, L from filename (format: txt/b-all-N-S-K-L.txt)
+	int parsed_N = 0, parsed_S = 0, parsed_K = 0, parsed_L = 0;
+	sscanf(iname, "txt/b-all-%d-%d-%d-%d.txt", &parsed_N, &parsed_S, &parsed_K, &parsed_L);
+
+	// Check if complete_results.csv needs header
+	FILE* arslt = fopen("complete_results.csv", "r");
+	int needs_header = (arslt == NULL);
+	if (arslt) {
+		fseek(arslt, 0, SEEK_END);
+		if (ftell(arslt) == 0) needs_header = 1;
+		fclose(arslt);
+	}
+
+	arslt = fopen("complete_results.csv", "a");
+	if (needs_header) {
+		fprintf(arslt, "filename,N,S,K,L,average\n");
+	}
+	fprintf(arslt, "%s,%d,%d,%d,%d,%.4f\n", iname, parsed_N, S, parsed_K, parsed_L, avg_score);
 	fclose(arslt);
 
 	cudaFree(state_counts);

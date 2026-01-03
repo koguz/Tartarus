@@ -40,8 +40,8 @@ for %%N in (512 1024) do (
             echo Training complete. >> %LOG%
 
             REM Testing
-            echo Testing with TartarusTestAll.exe txt/b-all-%%N-%%S-%RUN_ID%.txt %%S
-            TartarusTestAll.exe txt/b-all-%%N-%%S-%RUN_ID%.txt %%S
+            echo Testing with TartarusTestAll.exe txt/b-all-%%N-%%S-%%K-%RUN_ID%.txt %%S
+            TartarusTestAll.exe txt/b-all-%%N-%%S-%%K-%RUN_ID%.txt %%S
 
             echo End: %time% >> %LOG%
             echo. >> %LOG%
@@ -56,8 +56,8 @@ echo Sweep complete! %COUNT% runs finished.
 echo ============================================
 echo.
 echo Results saved in:
-echo   - txt/r-all-*.txt (training curves with header: generation,best,average)
-echo   - txt/b-all-*.txt (best solutions)
+echo   - txt/r-all-N-S-K-L.txt (training curves with header: generation,best,average)
+echo   - txt/b-all-N-S-K-L.txt (best solutions)
 echo   - txt/sc_*.txt (score distributions)
 echo   - txt/st_*.txt (state distributions)
 echo   - complete_results.csv (summary)
