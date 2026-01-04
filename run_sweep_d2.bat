@@ -21,13 +21,13 @@ echo. >> %LOG%
 set RUN_ID=1
 set COUNT=0
 
-for %%N in (512 1024) do (
-    for %%S in (12 16 24 32 48 64 128) do (
-        for %%K in (1000 2000 4000 8000) do (
+for %%N in (1024) do (
+    for %%S in (12 16 24 32 48 64) do (
+        for %%K in (1000 2000) do (
             set /a COUNT+=1
 
             echo ============================================
-            echo Run !COUNT!/56: N=%%N, S=%%S, K=%%K (D2)
+            echo Run !COUNT!/56: N=%%N, S=%%S, K=%%K [D2]
             echo ============================================
             echo.
 
