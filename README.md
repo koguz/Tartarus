@@ -25,19 +25,13 @@ Tartarus is a benchmark problem for evaluating artificial agents. An agent opera
 
 ### Training Kernels
 
-| File | Description | Compile |
-|------|-------------|---------|
-| `kernel_2026.cu` | Main training kernel with sampled boards | `nvcc -arch=sm_120 -o Tartarus2026.exe kernel_2026.cu -lcurand` |
-| `kernel_allboards.cu` | Training on ALL 74,760 boards (exact fitness) | `nvcc -arch=sm_120 -o Tartarus74K.exe kernel_allboards.cu -lcurand` |
+ - kernel.cu - Kernel developed in 2019-2020 using CUDA on RTX 1050... [^2]
+ - kernel_2026.cu - Kernel updated to take advantage of CUDA on RTX 5070
+ - kernel_allboards.cu - 2026 kernel updated to use all 74760 boards during training 
+ - kernel_D2_allboards.cu - This version uses the D2 design from 2020 paper. 
+ - kernel_test_all.cu - Runs a solution on all boards, and prints statistics, such as state and score distribution
 
-### Testing & Analysis
-
-| File | Description | Compile |
-|------|-------------|---------|
-| `kernel_test_all.cu` | Test solution on all 74,760 boards, shows score histogram & state usage | `nvcc -arch=sm_120 -o TartarusTestAll.exe kernel_test_all.cu -lcurand` |
-| `kernel_analyze.cu` | Deep analysis: heatmaps, transitions, push stats, memory usage | `nvcc -arch=sm_120 -o TartarusAnalyze.exe kernel_analyze.cu` |
-
-> **Note:** The `-arch=sm_120` flag optimizes for RTX 50 series (Blackwell). Use `-arch=sm_89` for RTX 40 series, `-arch=sm_86` for RTX 30 series.
+Compile using `nvcc -arch=sm_120 -o Tartarus74K.exe kernel_allboards.cu -lcurand` - update the input and output filenames as needed. The `-arch=sm_120` flag optimizes for RTX 50 series (Blackwell). Use `-arch=sm_89` for RTX 40 series, `-arch=sm_86` for RTX 30 series. 
 
 ### Visualization (Python)
 
@@ -48,11 +42,7 @@ Tartarus is a benchmark problem for evaluating artificial agents. An agent opera
 
 ### Data Files
 
-| File | Description |
-|------|-------------|
-| `realboard.txt` | All 1,869 unique board layouts |
-| `txt/` | Directory for solution files and results |
-
+The realboard.txt contains all 1,869 unique board layouts. Start the agent in the remaining 10 positions with a random orientation. This results in 1869 * 4 * 10 = 74760 unique boards [^2]. The boards.txt contains the boards before we showed that the number of boards is 74760 in the 2020 paper [^1][^2]. 
 ## Usage
 
 ### Training with Sampled Boards (kernel_2026.cu)
@@ -178,5 +168,8 @@ The last gene (`G-1`) stores the initial state.
 
 ## References
 
-- Original 2020 paper: `tam_metin.pdf`
-- Tartarus problem: https://en.wikipedia.org/wiki/Tartarus_problem
+Here are all the related references, both by Kaya Oğuz and others. 
+
+[^1]: Kaya Oğuz, Adaptive Evolution of Finite State Machines for the Tartarus Problem, 2019 Innovations in Intelligent Systems and Applications Conference (ASYU), 2019, pp. 1-5, doi: 10.1109/ASYU48272.2019.8946413
+[^2]: Kaya Oğuz, True scores for tartarus with adaptive GAs that evolve FSMs on GPU, Information Sciences, 2020, pp. 1-15, doi: 10.1016/j.ins.2020.03.072.
+[^3]: Kaya Oğuz, Estimating the difficulty of Tartarus instances, Pamukkale Univ Muh Bilim Derg, 2021, pp. 114-121, doi: 10.5505/pajes.2020.00515.
