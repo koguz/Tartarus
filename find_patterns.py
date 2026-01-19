@@ -232,6 +232,32 @@ def analyze_patterns(prefix='analysis', min_length=3, max_length=8):
     avg_unique = sum(unique_per_seq) / len(unique_per_seq)
     print(f"\nAverage unique states visited per sequence: {avg_unique:.1f}")
 
+    # Check for consecutive repeats (same state staying)
+    total_transitions = 0
+    self_loops = 0
+    for seq in sequences:
+        for i in range(len(seq) - 1):
+            total_transitions += 1
+            if seq[i] == seq[i + 1]:
+                self_loops += 1
+
+    print(f"\nSelf-loop analysis (agent staying in same state):")
+    print(f"  Total transitions: {total_transitions:,}")
+    print(f"  Self-loops (same state): {self_loops:,} ({100*self_loops/total_transitions:.2f}%)")
+    print(f"  State changes: {total_transitions - self_loops:,} ({100*(total_transitions-self_loops)/total_transitions:.2f}%)")
+
+    # Find most common self-loop states
+    self_loop_counts = Counter()
+    for seq in sequences:
+        for i in range(len(seq) - 1):
+            if seq[i] == seq[i + 1]:
+                self_loop_counts[seq[i]] += 1
+
+    if self_loop_counts:
+        print(f"\nMost common self-loop states (states that repeat consecutively):")
+        for state, count in self_loop_counts.most_common(10):
+            print(f"  State {state}: {count:,} consecutive repeats")
+
     return results
 
 

@@ -142,7 +142,7 @@ def plot_state_perception_heatmaps(state_stats, output_file='state_perceptions.p
                            fontsize=9, fontweight='bold', color=text_color)
 
         # Arrow in center cell pointing up (indicates agent facing direction)
-        ax.annotate('', xy=(1, 0.65), xytext=(1, 1.35),
+        ax.annotate('', xy=(1, 0.7), xytext=(1, 1.3),
                    arrowprops=dict(arrowstyle='->', color='black', lw=2.5))
 
         # Get dominant action
@@ -166,7 +166,7 @@ def plot_state_perception_heatmaps(state_stats, output_file='state_perceptions.p
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_xlim(-0.5, 2.5)
-        ax.set_ylim(2.5, -0.7)  # Extra space for arrow
+        ax.set_ylim(2.5, -0.5)
 
     # Hide unused subplots
     for idx in range(len(states_by_visits), len(axes)):
@@ -278,8 +278,8 @@ def plot_pattern_sequence(state_ids, state_stats, output_file='pattern_sequence.
                     ax.text(col, row, f'{p_box:.0f}%', ha='center', va='center',
                            fontsize=8, fontweight='bold', color=text_color)
 
-        # Arrow in center
-        ax.annotate('', xy=(1, 0.65), xytext=(1, 1.35),
+        # Arrow in center cell pointing up (agent facing direction)
+        ax.annotate('', xy=(1, 0.7), xytext=(1, 1.3),
                    arrowprops=dict(arrowstyle='->', color='black', lw=2))
 
         # Determine dominant action
@@ -305,22 +305,7 @@ def plot_pattern_sequence(state_ids, state_stats, output_file='pattern_sequence.
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_xlim(-0.5, 2.5)
-        ax.set_ylim(2.5, -0.7)
-
-        # Add arrow to next state (except for last)
-        if idx < n_states - 1:
-            # This will be handled by figure-level annotation
-            pass
-
-    # Add connecting arrows between subplots
-    for idx in range(n_states - 1):
-        # Get position between subplots
-        ax1 = axes[idx]
-        ax2 = axes[idx + 1]
-
-        # Draw arrow in figure coordinates
-        fig.text((idx + 1) / n_states - 0.02, 0.45, '→', fontsize=20,
-                ha='center', va='center', color='#333333')
+        ax.set_ylim(2.5, -0.5)
 
     # Legend
     legend_elements = [
