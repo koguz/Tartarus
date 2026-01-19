@@ -650,6 +650,111 @@ def plot_static_graph(G, output_file='graph_static.png', state_stats=None):
     print(f"Saved static graph to {output_file}")
 
 
+def plot_top_n_graph(G, output_file='graph_top15.png', state_stats=None, top_n=15):
+    """
+    Create a clean graph showing only the top N most visited states
+    with all transitions between them.
+    """
+    fig, ax = plt.subplots(figsize=(16, 16))
+
+    # Get top N states by visit count
+    all_nodes = [(n, G.nodes[n].get('visit_count', 0)) for n in G.nodes()]
+    all_nodes.sort(key=lambda x: -x[1])
+    top_nodes = [n for n, v in all_nodes[:top_n]]
+
+    # Create subgraph with only these nodes
+    H = G.subgraph(top_nodes).copy()
+
+    print(f"Top {top_n} graph: {len(H.nodes())} nodes and {len(H.edges())} edges")
+
+    # Use radial layout - most visited in center
+    pos, centrality = radial_layout(H, center_metric='visits', min_node_distance=2.0)
+
+    # Node sizes based on visit count
+    visit_counts = [H.nodes[n].get('visit_count', 1) for n in H.nodes()]
+    max_visits = max(visit_counts) if visit_counts else 1
+    node_sizes = [500 + 4000 * (v / max_visits) for v in visit_counts]
+
+    # Node colors based on dominant action
+    action_colors = {
+        'push': '#2ecc71',     # Green
+        'forward': '#3498db',  # Blue
+        'turn': '#f1c40f',     # Yellow
+        'none': '#95a5a6'      # Gray
+    }
+    node_colors = [action_colors.get(H.nodes[n].get('dominant_action', 'none'), '#95a5a6')
+                   for n in H.nodes()]
+
+    # Edge widths based on weight
+    edge_weights = [H.edges[e].get('weight', 1) for e in H.edges()]
+    if edge_weights:
+        max_weight = max(edge_weights)
+        edge_widths = [0.5 + 6 * (w / max_weight) for w in edge_weights]
+        edge_alphas = [0.3 + 0.5 * (w / max_weight) for w in edge_weights]
+    else:
+        edge_widths = []
+        edge_alphas = []
+
+    # Draw edges with colors based on source node action
+    for (u, v), width, alpha in zip(H.edges(), edge_widths, edge_alphas):
+        source_action = H.nodes[u].get('dominant_action', 'none')
+        edge_color = action_colors.get(source_action, '#666666')
+        ax.annotate("",
+                    xy=pos[v], xycoords='data',
+                    xytext=pos[u], textcoords='data',
+                    arrowprops=dict(arrowstyle="-|>",
+                                    color=edge_color,
+                                    alpha=alpha,
+                                    connectionstyle="arc3,rad=0.15",
+                                    lw=width,
+                                    mutation_scale=20))
+
+    # Draw nodes
+    nx.draw_networkx_nodes(H, pos, ax=ax,
+                           node_size=node_sizes,
+                           node_color=node_colors,
+                           alpha=0.9,
+                           edgecolors='black',
+                           linewidths=2)
+
+    # Draw labels
+    nx.draw_networkx_labels(H, pos, ax=ax, font_size=11, font_weight='bold')
+
+    # Legend
+    legend_elements = [
+        mpatches.Patch(color='#2ecc71', label='Push'),
+        mpatches.Patch(color='#3498db', label='Forward'),
+        mpatches.Patch(color='#f1c40f', label='Turn'),
+    ]
+    ax.legend(handles=legend_elements, loc='upper left', fontsize=12, framealpha=0.9)
+
+    # Add visit counts as annotations
+    for node in H.nodes():
+        x, y = pos[node]
+        visits = H.nodes[node].get('visit_count', 0)
+        ax.text(x, y - 0.4, f'{visits:,}', ha='center', va='top',
+               fontsize=8, color='#555555')
+
+    ax.set_title(f'Top {top_n} Most Visited States\n'
+                f'Node color = dominant action, Edge color = source action\n'
+                f'Node size & label below = visit count',
+                fontsize=14, fontweight='bold')
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    # Set axis limits
+    all_x = [p[0] for p in pos.values()]
+    all_y = [p[1] for p in pos.values()]
+    margin = 3
+    ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
+    ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
+
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"Saved top {top_n} graph to {output_file}")
+
+
 def plot_action_clustered_graph(G, output_file='graph_actions.png', state_stats=None):
     """
     Create a graph clustered by dominant action type.
@@ -976,6 +1081,7 @@ if __name__ == '__main__':
     print("\nGenerating visualizations...")
     plot_adjacency_heatmap(G, f'{prefix}_heatmap.png')
     plot_static_graph(G, f'{prefix}_graph.png', state_stats)
+    plot_top_n_graph(G, f'{prefix}_top15.png', state_stats, top_n=15)
     plot_action_clustered_graph(G, f'{prefix}_actions.png', state_stats)
     plot_state_perception_heatmaps(state_stats, f'{prefix}_perceptions.png', top_n=10)
 
