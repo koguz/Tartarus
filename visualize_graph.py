@@ -675,6 +675,9 @@ def plot_top_n_graph(G, output_file='graph_top15.png', state_stats=None, top_n=1
     max_visits = max(visit_counts) if visit_counts else 1
     node_sizes = [500 + 4000 * (v / max_visits) for v in visit_counts]
 
+    # Create a dict mapping node to its size for edge shrinking
+    node_size_dict = {n: sz for n, sz in zip(H.nodes(), node_sizes)}
+
     # Node colors based on dominant action
     action_colors = {
         'push': '#2ecc71',     # Green
@@ -689,25 +692,29 @@ def plot_top_n_graph(G, output_file='graph_top15.png', state_stats=None, top_n=1
     edge_weights = [H.edges[e].get('weight', 1) for e in H.edges()]
     if edge_weights:
         max_weight = max(edge_weights)
-        edge_widths = [0.5 + 6 * (w / max_weight) for w in edge_weights]
-        edge_alphas = [0.3 + 0.5 * (w / max_weight) for w in edge_weights]
+        edge_widths = [0.5 + 4 * (w / max_weight) for w in edge_weights]
+        edge_alphas = [0.4 + 0.4 * (w / max_weight) for w in edge_weights]
     else:
         edge_widths = []
         edge_alphas = []
 
-    # Draw edges with colors based on source node action
+    # Draw edges - black arrows that stop at node borders
     for (u, v), width, alpha in zip(H.edges(), edge_widths, edge_alphas):
-        source_action = H.nodes[u].get('dominant_action', 'none')
-        edge_color = action_colors.get(source_action, '#666666')
+        # Calculate shrink values: node_size is area in points², radius = sqrt(size/pi)
+        radius_a = math.sqrt(node_size_dict[u] / math.pi)
+        radius_b = math.sqrt(node_size_dict[v] / math.pi)
+
         ax.annotate("",
                     xy=pos[v], xycoords='data',
                     xytext=pos[u], textcoords='data',
                     arrowprops=dict(arrowstyle="-|>",
-                                    color=edge_color,
+                                    color='black',
                                     alpha=alpha,
                                     connectionstyle="arc3,rad=0.15",
                                     lw=width,
-                                    mutation_scale=20))
+                                    shrinkA=radius_a,
+                                    shrinkB=radius_b,
+                                    mutation_scale=15))
 
     # Draw nodes
     nx.draw_networkx_nodes(H, pos, ax=ax,
@@ -728,16 +735,8 @@ def plot_top_n_graph(G, output_file='graph_top15.png', state_stats=None, top_n=1
     ]
     ax.legend(handles=legend_elements, loc='upper left', fontsize=12, framealpha=0.9)
 
-    # Add visit counts as annotations
-    for node in H.nodes():
-        x, y = pos[node]
-        visits = H.nodes[node].get('visit_count', 0)
-        ax.text(x, y - 0.4, f'{visits:,}', ha='center', va='top',
-               fontsize=8, color='#555555')
-
     ax.set_title(f'Top {top_n} Most Visited States\n'
-                f'Node color = dominant action, Edge color = source action\n'
-                f'Node size & label below = visit count',
+                f'Node color = dominant action, Node size = visit count',
                 fontsize=14, fontweight='bold')
     ax.set_aspect('equal')
     ax.axis('off')
