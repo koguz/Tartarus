@@ -38,7 +38,8 @@ def extract_ngrams(sequence, n):
 
 
 def find_frequent_ngrams(sequences, n, min_count=100):
-    """Find the most frequent n-grams across all sequences."""
+    """Find the most frequent n-grams across all sequences.
+    Counts each n-gram once per sequence (presence/absence)."""
     ngram_counts = Counter()
 
     for seq in sequences:
@@ -50,6 +51,28 @@ def find_frequent_ngrams(sequences, n, min_count=100):
 
     # Filter by minimum count
     frequent = [(ng, count) for ng, count in ngram_counts.most_common() if count >= min_count]
+    return frequent
+
+
+def find_frequent_ngrams_total(sequences, n, min_count=100):
+    """Find the most frequent n-grams counting ALL occurrences.
+    If a pattern appears 3 times in one sequence, it counts as 3."""
+    ngram_counts = Counter()
+    ngram_sequence_counts = Counter()  # How many sequences contain this pattern
+
+    for seq in sequences:
+        ngrams = extract_ngrams(seq, n)
+        # Count every occurrence
+        for ng in ngrams:
+            ngram_counts[ng] += 1
+        # Also track unique sequences containing this pattern
+        for ng in set(ngrams):
+            ngram_sequence_counts[ng] += 1
+
+    # Filter by minimum total count
+    frequent = [(ng, ngram_counts[ng], ngram_sequence_counts[ng])
+                for ng in ngram_counts if ngram_counts[ng] >= min_count]
+    frequent.sort(key=lambda x: -x[1])  # Sort by total occurrences
     return frequent
 
 
@@ -171,6 +194,29 @@ def analyze_patterns(prefix='analysis', min_length=3, max_length=8):
         else:
             print("No patterns found with sufficient frequency")
 
+    # Find n-grams with total occurrence counts (not just sequence presence)
+    print("\n" + "="*70)
+    print("TOTAL PATTERN OCCURRENCES (counting all instances)")
+    print("="*70)
+    print("This counts every occurrence, even multiple times within one sequence.")
+
+    for n in range(min_length, max_length + 1):
+        print(f"\n--- {n}-grams (total occurrences) ---")
+        frequent_total = find_frequent_ngrams_total(sequences, n, min_count=5000)
+
+        if frequent_total:
+            print(f"Found {len(frequent_total)} patterns with 5000+ total occurrences")
+            print(f"{'Pattern':<40} {'Total Occ.':>12} {'In Sequences':>12} {'Avg/Seq':>10} {'Actions':<10}")
+            print("-" * 90)
+
+            for pattern, total_count, seq_count in frequent_total[:15]:  # Top 15
+                pattern_str = '-'.join(map(str, pattern))
+                actions = get_pattern_action_info(pattern, state_stats)
+                avg_per_seq = total_count / seq_count if seq_count > 0 else 0
+                print(f"{pattern_str:<40} {total_count:>12,} {seq_count:>12,} {avg_per_seq:>10.2f} {actions:<10}")
+        else:
+            print("No patterns found with sufficient frequency")
+
     # Find repeating patterns (loops)
     print("\n" + "="*70)
     print("REPEATING PATTERNS (loops within sequences)")
@@ -195,6 +241,11 @@ def analyze_patterns(prefix='analysis', min_length=3, max_length=8):
     results = {
         'frequent_ngrams': {
             n: [(list(p), c) for p, c in find_frequent_ngrams(sequences, n, min_count=500)[:50]]
+            for n in range(min_length, max_length + 1)
+        },
+        'total_occurrences': {
+            n: [{'pattern': list(p), 'total': t, 'sequences': s, 'avg_per_seq': t/s if s > 0 else 0}
+                for p, t, s in find_frequent_ngrams_total(sequences, n, min_count=1000)[:50]]
             for n in range(min_length, max_length + 1)
         },
         'repeating_patterns': [
