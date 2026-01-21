@@ -345,3 +345,9 @@ healthchecksdb
 *.lib
 *.dll
 *.pdf
+*.png
+*.html
+*.json 
+*.pkl
+
+lib/
