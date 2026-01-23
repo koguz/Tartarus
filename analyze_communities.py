@@ -5,13 +5,23 @@ Community detection on the state transition graph.
 Finds clusters of states that form behavioral modes:
 - "searching", "wall-following", "stuck loop", "corridor traversal", etc.
 
+Uses Infomap algorithm which respects edge direction (flow-based detection).
+
 For each community:
 - Top states and actions
 - Average dwell time before exit
 - Exit edges to other communities
 
 Usage:
-    python analyze_communities.py [analysis_prefix]
+    python analyze_communities.py [analysis_prefix] [--markov-time T]
+
+Options:
+    --markov-time T    Resolution parameter (default: 1.0)
+                       Higher = more smaller communities
+                       Lower = fewer larger communities
+
+Install infomap:
+    pip install infomap
 """
 
 import json
@@ -70,8 +80,61 @@ def get_dominant_action(state_id, state_stats):
         return 'T'
 
 
-def detect_communities_louvain(G):
-    """Detect communities using Louvain algorithm."""
+def detect_communities_infomap(G, markov_time=1.0):
+    """
+    Detect communities using Infomap algorithm on DIRECTED graph.
+
+    Infomap uses random walk dynamics to find communities where flow tends to stay.
+    This is ideal for state transition graphs.
+
+    Args:
+        G: NetworkX DiGraph with edge weights
+        markov_time: Resolution parameter (default 1.0)
+                     Higher = more smaller communities
+                     Lower = fewer larger communities
+    """
+    try:
+        import infomap
+        print(f"Using Infomap (directed, flow-based) with markov_time={markov_time}...")
+
+        # Create Infomap object
+        im = infomap.Infomap(f"--directed --markov-time {markov_time} --seed 42")
+
+        # Create node ID mapping (Infomap needs integer IDs starting from 0)
+        nodes = list(G.nodes())
+        node_to_id = {node: i for i, node in enumerate(nodes)}
+        id_to_node = {i: node for node, i in node_to_id.items()}
+
+        # Add edges to Infomap
+        for u, v, data in G.edges(data=True):
+            weight = data.get('weight', 1)
+            im.add_link(node_to_id[u], node_to_id[v], weight)
+
+        # Run Infomap
+        im.run()
+
+        # Extract communities
+        comm_dict = defaultdict(set)
+        for node_id in im.tree:
+            if node_id.is_leaf:
+                original_node = id_to_node[node_id.node_id]
+                module_id = node_id.module_id
+                comm_dict[module_id].add(original_node)
+
+        communities = list(comm_dict.values())
+        print(f"Infomap found {len(communities)} communities")
+        print(f"Codelength: {im.codelength:.4f} bits")
+
+        return communities
+
+    except ImportError:
+        print("Infomap not installed. Install with: pip install infomap")
+        print("Falling back to Louvain (undirected)...")
+        return detect_communities_louvain_fallback(G)
+
+
+def detect_communities_louvain_fallback(G):
+    """Fallback: Louvain on undirected graph."""
     # Convert to undirected for community detection (symmetrize weights)
     G_undirected = nx.Graph()
     for u, v, data in G.edges(data=True):
@@ -83,8 +146,7 @@ def detect_communities_louvain(G):
 
     # Try to use community detection
     try:
-        print("Using Louvain community detection...")
-        # NetworkX >= 2.8 has louvain_communities
+        print("Using Louvain community detection (undirected fallback)...")
         from networkx.algorithms.community import louvain_communities
         communities = louvain_communities(G_undirected, weight='weight', seed=42)
         return [set(c) for c in communities]
@@ -92,11 +154,9 @@ def detect_communities_louvain(G):
         pass
 
     try:
-        # Try python-louvain package
         import community as community_louvain
         print("Using python-louvain community detection...")
         partition = community_louvain.best_partition(G_undirected, weight='weight', random_state=42)
-        # Convert partition dict to list of sets
         comm_dict = defaultdict(set)
         for node, comm_id in partition.items():
             comm_dict[comm_id].add(node)
@@ -341,8 +401,15 @@ def create_community_graph_summary(communities_analysis, inter_trans):
         print(f"  {entry_str:20} C{comm_id}({label}) {exit_str:20} [{visits:,} visits]")
 
 
-def analyze_communities(prefix='analysis'):
-    """Main analysis function."""
+def analyze_communities(prefix='analysis', markov_time=1.0):
+    """Main analysis function.
+
+    Args:
+        prefix: Analysis file prefix
+        markov_time: Infomap resolution parameter (default 1.0)
+                     Higher = more smaller communities
+                     Lower = fewer larger communities
+    """
     print(f"Loading data from {prefix}...")
     transitions, state_stats, sequences = load_data(prefix)
 
@@ -355,8 +422,8 @@ def analyze_communities(prefix='analysis'):
     G_active = G.subgraph(active_nodes).copy()
     print(f"Active subgraph: {G_active.number_of_nodes()} nodes")
 
-    print("\nDetecting communities...")
-    communities = detect_communities_louvain(G_active)
+    print("\nDetecting communities (using directed flow-based algorithm)...")
+    communities = detect_communities_infomap(G_active, markov_time=markov_time)
     print(f"Found {len(communities)} communities")
 
     # Create state -> community mapping
@@ -415,6 +482,8 @@ def analyze_communities(prefix='analysis'):
 
     # Save results
     results = {
+        'algorithm': 'infomap',
+        'markov_time': markov_time,
         'num_communities': len(communities),
         'communities': [
             {
@@ -446,5 +515,30 @@ def analyze_communities(prefix='analysis'):
 
 
 if __name__ == '__main__':
-    prefix = sys.argv[1] if len(sys.argv) > 1 else 'analysis'
-    analyze_communities(prefix)
+    prefix = 'analysis'
+    markov_time = 1.0
+
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == '--markov-time' and i + 1 < len(sys.argv):
+            markov_time = float(sys.argv[i + 1])
+            i += 2
+        elif arg == '--help':
+            print("Usage: python analyze_communities.py [prefix] [options]")
+            print("\nOptions:")
+            print("  --markov-time T    Resolution parameter (default: 1.0)")
+            print("                     Higher = more smaller communities")
+            print("                     Lower = fewer larger communities")
+            print("\nExamples:")
+            print("  python analyze_communities.py analysis")
+            print("  python analyze_communities.py analysis --markov-time 0.5  # fewer, larger communities")
+            print("  python analyze_communities.py analysis --markov-time 2.0  # more, smaller communities")
+            sys.exit(0)
+        elif not arg.startswith('-'):
+            prefix = arg
+            i += 1
+        else:
+            i += 1
+
+    analyze_communities(prefix, markov_time=markov_time)
