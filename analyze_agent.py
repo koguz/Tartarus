@@ -261,6 +261,17 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
     # Fitness distribution (score -> count)
     fitness_distribution = defaultdict(int)
 
+    # Combination transition graph: combo_transitions[from_combo][to_combo] = count
+    # Self-edges (from_combo == to_combo) are allowed
+    combo_transitions = defaultdict(lambda: defaultdict(int))
+
+    # Per-combination statistics: track states and actions for each combination
+    combo_stats = {c: {
+        'state_counts': defaultdict(int),  # state -> count (which states visited this combo)
+        'action_counts': {'forward': 0, 'push': 0, 'turn_left': 0, 'turn_right': 0},
+        'visit_count': 0
+    } for c in range(C)}
+
     # Run all configurations
     total_fitness = 0
     config_count = 0
@@ -297,6 +308,21 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
                     state_stats[s]['visit_count'] += 1
                     state_stats[s]['action_counts'][detail['action_type']] += 1
                     state_stats[s]['combo_counts'][detail['combo_idx']] += 1
+
+                # Update combination transition counts and per-combination statistics
+                for i in range(len(step_details)):
+                    detail = step_details[i]
+                    combo_idx = detail['combo_idx']
+
+                    # Update per-combination stats
+                    combo_stats[combo_idx]['visit_count'] += 1
+                    combo_stats[combo_idx]['state_counts'][detail['state']] += 1
+                    combo_stats[combo_idx]['action_counts'][detail['action_type']] += 1
+
+                    # Track transition to next combination (if there is a next step)
+                    if i < len(step_details) - 1:
+                        next_combo_idx = step_details[i + 1]['combo_idx']
+                        combo_transitions[combo_idx][next_combo_idx] += 1
 
         if (board_idx + 1) % 200 == 0:
             print(f"  Processed {board_idx + 1}/{len(boards)} boards ({config_count} configs)")
@@ -385,7 +411,56 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
         pickle.dump(all_sequences, f)
     print(f"  Saved {len(all_sequences)} state sequences to {output_prefix}_sequences.pkl")
 
-    # 4. Summary report
+    # 4. Combination transition graph (as edge list for visualization)
+    combo_edges = []
+    for from_combo, targets in combo_transitions.items():
+        for to_combo, weight in targets.items():
+            combo_edges.append({
+                'source': from_combo,
+                'target': to_combo,
+                'weight': weight
+            })
+
+    with open(f'{output_prefix}_combo_transitions.json', 'w') as f:
+        json.dump({
+            'nodes': list(range(C)),
+            'edges': combo_edges,
+            'num_combinations': C,
+            'total_configs': config_count
+        }, f, indent=2)
+    print(f"  Saved combination transition graph to {output_prefix}_combo_transitions.json")
+
+    # 5. Per-combination statistics
+    combo_stats_output = {}
+    for c in range(C):
+        stats = combo_stats[c]
+        if stats['visit_count'] == 0:
+            continue  # Skip unvisited combinations
+
+        # Convert defaultdict to regular dict for JSON
+        state_counts = dict(stats['state_counts'])
+
+        # Find most common states for this combination
+        top_states = sorted(state_counts.items(), key=lambda x: -x[1])[:10]
+
+        combo_stats_output[c] = {
+            'combo_raw': IIDX[c],
+            'description': describe_combination(c),
+            'visit_count': stats['visit_count'],
+            'action_counts': stats['action_counts'],
+            'num_states': len(state_counts),  # How many different states visited this combo
+            'top_states': [
+                {'state': s[0], 'count': s[1]}
+                for s in top_states
+            ],
+            'all_states': state_counts  # Full mapping of state -> count
+        }
+
+    with open(f'{output_prefix}_combo_stats.json', 'w') as f:
+        json.dump(combo_stats_output, f, indent=2)
+    print(f"  Saved combination statistics to {output_prefix}_combo_stats.json")
+
+    # 6. Summary report
     print("\n" + "="*60)
     print("STATE SUMMARY")
     print("="*60)
@@ -435,7 +510,66 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
         total_incoming = sum(transition_counts[from_s][s] for from_s in transition_counts if s in transition_counts[from_s])
         print(f"  State {s}: transitions from {in_degree[s]} states ({total_incoming} total transitions)")
 
-    return transition_counts, state_stats, all_sequences
+    print(f"\n" + "="*60)
+    print("COMBINATION GRAPH SUMMARY")
+    print("="*60)
+
+    # Count edges and self-loops
+    total_combo_edges = len(combo_edges)
+    self_loop_count = sum(1 for e in combo_edges if e['source'] == e['target'])
+    self_loop_weight = sum(e['weight'] for e in combo_edges if e['source'] == e['target'])
+    total_edge_weight = sum(e['weight'] for e in combo_edges)
+
+    print(f"\nGraph statistics:")
+    print(f"  Total edges: {total_combo_edges} ({self_loop_count} self-loops)")
+    print(f"  Total transitions: {total_edge_weight} ({self_loop_weight} self-loop transitions)")
+
+    # Visited combinations
+    visited_combos = [c for c in range(C) if combo_stats[c]['visit_count'] > 0]
+    print(f"  Visited combinations: {len(visited_combos)} / {C}")
+
+    # Out-degree and in-degree for combinations
+    combo_out_degree = {c: len(combo_transitions[c]) for c in range(C)}
+    combo_in_degree = defaultdict(int)
+    for from_c, targets in combo_transitions.items():
+        for to_c in targets:
+            combo_in_degree[to_c] += 1
+
+    print(f"\nTop 10 most visited combinations:")
+    print(f"{'Combo':>6} {'Visits':>10} {'#States':>8} {'Forward':>8} {'Push':>6} {'TurnL':>6} {'TurnR':>6}  Description")
+    print("-" * 90)
+
+    sorted_combos = sorted(visited_combos, key=lambda c: -combo_stats[c]['visit_count'])
+    for c in sorted_combos[:10]:
+        stats = combo_stats[c]
+        desc = describe_combination(c)
+        print(f"{c:>6} {stats['visit_count']:>10} {len(stats['state_counts']):>8} "
+              f"{stats['action_counts']['forward']:>8} {stats['action_counts']['push']:>6} "
+              f"{stats['action_counts']['turn_left']:>6} {stats['action_counts']['turn_right']:>6}  {desc}")
+
+    print(f"\nTop 10 'pusher' combinations (by push count):")
+    pusher_combos = sorted(visited_combos, key=lambda c: -combo_stats[c]['action_counts']['push'])
+    for c in pusher_combos[:10]:
+        stats = combo_stats[c]
+        push_count = stats['action_counts']['push']
+        total = stats['visit_count']
+        desc = describe_combination(c)
+        if total > 0:
+            print(f"  Combo {c}: {push_count} pushes ({100*push_count/total:.1f}% of {total} visits) - {desc}")
+
+    print(f"\nCombinations with most diverse state usage (many states visit same combo):")
+    diverse_combos = sorted(visited_combos, key=lambda c: -len(combo_stats[c]['state_counts']))
+    for c in diverse_combos[:10]:
+        stats = combo_stats[c]
+        desc = describe_combination(c)
+        print(f"  Combo {c}: {len(stats['state_counts'])} different states - {desc}")
+
+    print(f"\nCombinations with highest out-degree (lead to many different combos):")
+    for c in sorted(visited_combos, key=lambda x: -combo_out_degree[x])[:10]:
+        desc = describe_combination(c)
+        print(f"  Combo {c}: {combo_out_degree[c]} target combinations - {desc}")
+
+    return transition_counts, state_stats, all_sequences, combo_transitions, combo_stats
 
 
 if __name__ == '__main__':
