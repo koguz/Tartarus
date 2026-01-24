@@ -5,6 +5,14 @@ from random import randint, choice
 from copy import deepcopy
 from PIL import Image, ImageDraw, ImageFont
 
+# ==========================================
+# CONFIGURATION INPUT
+# ==========================================
+# To replay a specific board, paste the output dictionary here.
+# Example: OVERRIDE_CONFIG = {'board': [0, 0, ...], 'pos': [2, 3], 'dir': [0, 1]}
+OVERRIDE_CONFIG = None
+# ==========================================
+
 # --- Inverted Index Mapping ---
 IIDX = [
     0,1,3,4,9,10,12,13,27,28,30,31,36,37,39,40,78,79,81,82,84,85,90,91,93,94,108,109,
@@ -31,14 +39,11 @@ IIDX = [
     6408,6411,6426,6427,6429,6430,6434,6435,6438,6534,6535,6537,6538,6543,6546
 ]
 
-# Create a dictionary for O(1) lookups
 CC_TO_IDX = {val: i for i, val in enumerate(IIDX)}
-INPUT_SIZE = len(IIDX) # Should be 383
+INPUT_SIZE = len(IIDX)
 
-# Helper to convert decimal to base 3 string (for visualization)
 def ternary(n):
-    if n == 0:
-        return '00000000'
+    if n == 0: return '00000000'
     nums = []
     while n:
         n, r = divmod(n, 3)
@@ -52,8 +57,6 @@ def rotate(r, v):
 
 def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, output_dir=""):
     used_states = set()
-    
-    # Increase height by 50px for the text bar
     W, H = 600, 600
     TEXT_H = 50
     
@@ -61,9 +64,7 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-    # Load font
     try:
-        # Try to load a nicer font, fallback to default if not present
         font = ImageFont.truetype("arial.ttf", 14)
     except IOError:
         font = ImageFont.load_default()
@@ -71,7 +72,6 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
     for step in range(0, 81):
         used_states.add(cs)
         
-        # 1. Draw the board on the standard image 'im'
         if saveImages:
             for x in range(0, 6):
                 for y in range(0, 6):
@@ -81,14 +81,13 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
                         im.paste(imb, [y * 100, x * 100])
             im.paste(ima, [cp[0] * 100, cp[1] * 100])
 
-        # 2. Calculate Context
         cc = 0
         cd_temp = deepcopy(cd) 
         for m in range(0, 8):
             cx = cp[0] + cd_temp[0]
             cy = cp[1] + cd_temp[1]
             if (cx < 0 or cy < 0 or cx >= 6 or cy >= 6):
-                cc = cc + pow(3, m) * 2  # wall = 2
+                cc = cc + pow(3, m) * 2
             else:
                 cc = cc + pow(3, m) * tartarus[cy][cx]
             cd_temp = rotate(cd_temp, 4)
@@ -101,7 +100,6 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
         
         flat_idx = INPUT_SIZE * cs + mapped_idx
         
-        # 3. Retrieve Action and Next State
         try:
             action = a[flat_idx]
             next_state = s[flat_idx]
@@ -109,28 +107,21 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
              print(f"INDEX ERROR: flat_idx {flat_idx} out of range.")
              break
 
-        # 4. Create output image with text bar
         if saveImages and output_dir:
-            # Create a larger canvas
             canvas = Image.new("RGB", (W, H + TEXT_H), (30, 30, 30))
             canvas.paste(im, (0, 0))
-            
             draw = ImageDraw.Draw(canvas)
             
-            # SWAP: 1 is printed as LEFT, 2 is printed as RIGHT
             action_str = ["MOVE", "LEFT", "RIGHT"][action]
             cc_ternary = ternary(cc)
             
             info_text = (f"Step: {step:02d} | State: {cs} -> {next_state}\n"
                          f"Input: {cc} ({cc_ternary}) | Action: {action_str}")
             
-            # Draw text centered in the bottom bar
             draw.text((20, H + 10), info_text, fill=(255, 255, 255), font=font)
-            
             fname = "state-%02d.png" % step
             canvas.save(os.path.join(output_dir, fname))
 
-        # 5. Execute State Transition & Action
         cs = next_state
 
         if action == 0:
@@ -139,7 +130,7 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
             if (cx >= 0 and cy >= 0 and cx < 6 and cy < 6):
                 if tartarus[cy][cx] == 0:
                     cp = [cx, cy]
-                else:  # there is a box
+                else:
                     dx = cx + cd[0]
                     dy = cy + cd[1]
                     if (dx >= 0 and dy >= 0 and dx < 6 and dy < 6 and tartarus[dy][dx] == 0):
@@ -147,10 +138,10 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
                         tartarus[dy][dx] = 1
                         cp = [cx, cy]
         elif action == 1:
-            cd = rotate(cd, 0.66)  # right (logic remains right)
+            cd = rotate(cd, 0.66)
             ima = ima.transpose(Image.ROTATE_90)
         elif action == 2:
-            cd = rotate(cd, 2)  # left (logic remains left)
+            cd = rotate(cd, 2)
             ima = ima.transpose(Image.ROTATE_270)
 
     print(f"Unique states used: {len(used_states)}")
@@ -199,25 +190,48 @@ except FileNotFoundError as e:
 
 im = Image.new("RGB", (600, 600), (255, 255, 255))
 
-print("Generating random board...")
-tartarus = [[0 for x in range(0,6)] for x in range(0,6)]
-i = 0
-while i < 6:
-    x = randint(1,4)
-    y = randint(1,4)
-    if tartarus[y][x] == 0:
-        tartarus[y][x] = 1
-        i = i + 1
+tartarus = []
+cp = []
+cd = []
 
-tamam = True
-while tamam:
-    cpx = randint(1, 4)
-    cpy = randint(1, 4)
-    if tartarus[cpy][cpx] == 0:
-        cp = [cpx, cpy]
-        tamam = False
+if OVERRIDE_CONFIG:
+    print(">>> USING OVERRIDE CONFIGURATION <<<")
+    # Reconstruct 2D board from 1D array
+    flat_board = OVERRIDE_CONFIG['board']
+    tartarus = [flat_board[i*6:(i+1)*6] for i in range(6)]
+    cp = OVERRIDE_CONFIG['pos']
+    cd = OVERRIDE_CONFIG['dir']
+    
+else:
+    print("Generating random board...")
+    tartarus = [[0 for x in range(0,6)] for x in range(0,6)]
+    i = 0
+    while i < 6:
+        x = randint(1,4)
+        y = randint(1,4)
+        if tartarus[y][x] == 0:
+            tartarus[y][x] = 1
+            i = i + 1
 
-cd = choice([[-1, 0], [1, 0], [0, 1], [0, -1]])
+    tamam = True
+    while tamam:
+        cpx = randint(1, 4)
+        cpy = randint(1, 4)
+        if tartarus[cpy][cpx] == 0:
+            cp = [cpx, cpy]
+            tamam = False
+
+    cd = choice([[-1, 0], [1, 0], [0, 1], [0, -1]])
+    
+    # Print the replay configuration
+    flat_board = [cell for row in tartarus for cell in row]
+    config_dict = {'board': flat_board, 'pos': cp, 'dir': cd}
+    print("-" * 60)
+    print("TO REPLAY THIS BOARD, COPY THE LINE BELOW INTO 'OVERRIDE_CONFIG':")
+    print(config_dict)
+    print("-" * 60)
+
+# Set image based on direction (Logic moved here so it works for both override and random)
 if cd == [-1, 0]:
     ima = imaw
 elif cd == [1, 0]:
