@@ -3,10 +3,9 @@ import os
 import time
 from random import randint, choice
 from copy import deepcopy
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 # --- Inverted Index Mapping ---
-# Maps the specific valid board configurations to a dense index (0-382)
 IIDX = [
     0,1,3,4,9,10,12,13,27,28,30,31,36,37,39,40,78,79,81,82,84,85,90,91,93,94,108,109,
     111,112,117,118,120,121,159,160,243,244,246,247,252,253,255,256,270,271,273,274,
@@ -36,6 +35,16 @@ IIDX = [
 CC_TO_IDX = {val: i for i, val in enumerate(IIDX)}
 INPUT_SIZE = len(IIDX) # Should be 383
 
+# Helper to convert decimal to base 3 string (for visualization)
+def ternary(n):
+    if n == 0:
+        return '00000000'
+    nums = []
+    while n:
+        n, r = divmod(n, 3)
+        nums.append(str(r))
+    return ''.join(reversed(nums)).zfill(8)
+
 def rotate(r, v):
     x = round(r[0] * math.cos(math.pi / v) - r[1] * math.sin(math.pi / v))
     y = round(r[0] * math.sin(math.pi / v) + r[1] * math.cos(math.pi / v))
@@ -44,12 +53,25 @@ def rotate(r, v):
 def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, output_dir=""):
     used_states = set()
     
+    # Increase height by 50px for the text bar
+    W, H = 600, 600
+    TEXT_H = 50
+    
     if saveImages and output_dir:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
+    # Load font
+    try:
+        # Try to load a nicer font, fallback to default if not present
+        font = ImageFont.truetype("arial.ttf", 14)
+    except IOError:
+        font = ImageFont.load_default()
+
     for step in range(0, 81):
         used_states.add(cs)
+        
+        # 1. Draw the board on the standard image 'im'
         if saveImages:
             for x in range(0, 6):
                 for y in range(0, 6):
@@ -59,34 +81,57 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
                         im.paste(imb, [y * 100, x * 100])
             im.paste(ima, [cp[0] * 100, cp[1] * 100])
 
-        # Calculate context code (cc) - Raw configuration ID
+        # 2. Calculate Context
         cc = 0
+        cd_temp = deepcopy(cd) 
         for m in range(0, 8):
-            cx = cp[0] + cd[0]
-            cy = cp[1] + cd[1]
+            cx = cp[0] + cd_temp[0]
+            cy = cp[1] + cd_temp[1]
             if (cx < 0 or cy < 0 or cx >= 6 or cy >= 6):
                 cc = cc + pow(3, m) * 2  # wall = 2
             else:
                 cc = cc + pow(3, m) * tartarus[cy][cx]
-            cd = rotate(cd, 4)
+            cd_temp = rotate(cd_temp, 4)
 
-        # Map raw cc to sparse index
         try:
             mapped_idx = CC_TO_IDX[cc]
         except KeyError:
             print(f"CRITICAL ERROR: Encounted a board configuration (cc={cc}) that is not in IIDX.")
-            # Default to 0 to prevent crash, but this effectively 'blinds' the agent
             mapped_idx = 0 
         
-        # Calculate array index using the mapped size (383) instead of 6561
         flat_idx = INPUT_SIZE * cs + mapped_idx
         
+        # 3. Retrieve Action and Next State
         try:
             action = a[flat_idx]
-            cs = s[flat_idx]
+            next_state = s[flat_idx]
         except IndexError:
-             print(f"INDEX ERROR: flat_idx {flat_idx} out of range. len(a)={len(a)}, cs={cs}, mapped_idx={mapped_idx}")
+             print(f"INDEX ERROR: flat_idx {flat_idx} out of range.")
              break
+
+        # 4. Create output image with text bar
+        if saveImages and output_dir:
+            # Create a larger canvas
+            canvas = Image.new("RGB", (W, H + TEXT_H), (30, 30, 30))
+            canvas.paste(im, (0, 0))
+            
+            draw = ImageDraw.Draw(canvas)
+            
+            # SWAP: 1 is printed as LEFT, 2 is printed as RIGHT
+            action_str = ["MOVE", "LEFT", "RIGHT"][action]
+            cc_ternary = ternary(cc)
+            
+            info_text = (f"Step: {step:02d} | State: {cs} -> {next_state}\n"
+                         f"Input: {cc} ({cc_ternary}) | Action: {action_str}")
+            
+            # Draw text centered in the bottom bar
+            draw.text((20, H + 10), info_text, fill=(255, 255, 255), font=font)
+            
+            fname = "state-%02d.png" % step
+            canvas.save(os.path.join(output_dir, fname))
+
+        # 5. Execute State Transition & Action
+        cs = next_state
 
         if action == 0:
             cx = cp[0] + cd[0]
@@ -102,15 +147,11 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
                         tartarus[dy][dx] = 1
                         cp = [cx, cy]
         elif action == 1:
-            cd = rotate(cd, 0.66)  # right
+            cd = rotate(cd, 0.66)  # right (logic remains right)
             ima = ima.transpose(Image.ROTATE_90)
         elif action == 2:
-            cd = rotate(cd, 2)  # left
+            cd = rotate(cd, 2)  # left (logic remains left)
             ima = ima.transpose(Image.ROTATE_270)
-
-        if saveImages and output_dir:
-            fname = "state-%02d.png" % step
-            im.save(os.path.join(output_dir, fname))
 
     print(f"Unique states used: {len(used_states)}")
     fitness = 0
@@ -186,7 +227,7 @@ elif cd == [0, 1]:
 elif cd == [0, -1]:
     ima = iman
 
-cs = s[-1] # 0 # Fixed: Start at state 0
+cs = s[-1]
 
 timestamp = int(time.time())
 run_dir = f"runs/run_{timestamp}"
