@@ -178,6 +178,65 @@ def detect_communities_louvain_fallback(G):
     return [set(c) for c in nx.connected_components(G_undirected)]
 
 
+def merge_small_communities(communities, G, min_size=4):
+    """
+    Merge communities smaller than min_size into their closest larger community.
+
+    "Closest" is defined by total flow (sum of edge weights in both directions)
+    between the small community and each larger community.
+
+    Args:
+        communities: List of sets of nodes
+        G: NetworkX DiGraph with edge weights
+        min_size: Minimum community size (default 4)
+
+    Returns:
+        New list of communities with small ones merged
+    """
+    # Separate into small and large communities
+    large = [c for c in communities if len(c) >= min_size]
+    small = [c for c in communities if len(c) < min_size]
+
+    if not small:
+        print(f"No communities smaller than {min_size} to merge")
+        return communities
+
+    if not large:
+        print(f"Warning: All communities are smaller than {min_size}, cannot merge")
+        return communities
+
+    print(f"Merging {len(small)} small communities (size < {min_size}) into larger ones...")
+
+    # For each small community, find the best large community to merge into
+    for small_comm in small:
+        best_target = None
+        best_flow = -1
+
+        for i, large_comm in enumerate(large):
+            # Calculate total flow between small and large community
+            flow = 0
+            for u in small_comm:
+                for v in large_comm:
+                    # Flow in both directions
+                    if G.has_edge(u, v):
+                        flow += G[u][v].get('weight', 1)
+                    if G.has_edge(v, u):
+                        flow += G[v][u].get('weight', 1)
+
+            if flow > best_flow:
+                best_flow = flow
+                best_target = i
+
+        if best_target is not None:
+            # Merge small community into the best target
+            merged_states = list(small_comm)
+            large[best_target] = large[best_target] | small_comm
+            print(f"  Merged {merged_states} (flow={best_flow:,}) into community with {len(large[best_target])-len(small_comm)} states")
+
+    print(f"After merging: {len(large)} communities")
+    return large
+
+
 def compute_dwell_times(sequences, state_to_community):
     """
     Compute how long the agent stays in each community before exiting.
@@ -401,7 +460,7 @@ def create_community_graph_summary(communities_analysis, inter_trans):
         print(f"  {entry_str:20} C{comm_id}({label}) {exit_str:20} [{visits:,} visits]")
 
 
-def analyze_communities(prefix='analysis', markov_time=1.0):
+def analyze_communities(prefix='analysis', markov_time=1.0, min_size=4):
     """Main analysis function.
 
     Args:
@@ -409,6 +468,8 @@ def analyze_communities(prefix='analysis', markov_time=1.0):
         markov_time: Infomap resolution parameter (default 1.0)
                      Higher = more smaller communities
                      Lower = fewer larger communities
+        min_size: Minimum community size (default 4)
+                  Smaller communities are merged into their closest neighbor
     """
     print(f"Loading data from {prefix}...")
     transitions, state_stats, sequences = load_data(prefix)
@@ -425,6 +486,10 @@ def analyze_communities(prefix='analysis', markov_time=1.0):
     print("\nDetecting communities (using directed flow-based algorithm)...")
     communities = detect_communities_infomap(G_active, markov_time=markov_time)
     print(f"Found {len(communities)} communities")
+
+    # Merge small communities
+    if min_size > 1:
+        communities = merge_small_communities(communities, G_active, min_size=min_size)
 
     # Create state -> community mapping
     state_to_community = {}
@@ -484,6 +549,7 @@ def analyze_communities(prefix='analysis', markov_time=1.0):
     results = {
         'algorithm': 'infomap',
         'markov_time': markov_time,
+        'min_community_size': min_size,
         'num_communities': len(communities),
         'communities': [
             {
@@ -517,6 +583,7 @@ def analyze_communities(prefix='analysis', markov_time=1.0):
 if __name__ == '__main__':
     prefix = 'analysis'
     markov_time = 1.0
+    min_size = 4
 
     i = 1
     while i < len(sys.argv):
@@ -524,16 +591,20 @@ if __name__ == '__main__':
         if arg == '--markov-time' and i + 1 < len(sys.argv):
             markov_time = float(sys.argv[i + 1])
             i += 2
+        elif arg == '--min-size' and i + 1 < len(sys.argv):
+            min_size = int(sys.argv[i + 1])
+            i += 2
         elif arg == '--help':
             print("Usage: python analyze_communities.py [prefix] [options]")
             print("\nOptions:")
             print("  --markov-time T    Resolution parameter (default: 1.0)")
             print("                     Higher = more smaller communities")
             print("                     Lower = fewer larger communities")
+            print("  --min-size N       Minimum community size (default: 4)")
+            print("                     Smaller communities are merged into closest neighbor")
             print("\nExamples:")
-            print("  python analyze_communities.py analysis")
-            print("  python analyze_communities.py analysis --markov-time 0.5  # fewer, larger communities")
-            print("  python analyze_communities.py analysis --markov-time 2.0  # more, smaller communities")
+            print("  python analyze_communities.py analysis --markov-time 0.88")
+            print("  python analyze_communities.py analysis --markov-time 0.88 --min-size 5")
             sys.exit(0)
         elif not arg.startswith('-'):
             prefix = arg
@@ -541,4 +612,4 @@ if __name__ == '__main__':
         else:
             i += 1
 
-    analyze_communities(prefix, markov_time=markov_time)
+    analyze_communities(prefix, markov_time=markov_time, min_size=min_size)
