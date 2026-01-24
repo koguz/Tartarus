@@ -186,7 +186,7 @@ elif cd == [0, 1]:
 elif cd == [0, -1]:
     ima = iman
 
-cs = 0 # Fixed: Start at state 0
+cs = s[-1] # 0 # Fixed: Start at state 0
 
 timestamp = int(time.time())
 run_dir = f"runs/run_{timestamp}"
