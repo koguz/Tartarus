@@ -57,6 +57,9 @@ IX = [0] * 6561
 for k, v in enumerate(IIDX):
     IX[v] = k
 
+# Set for fast validity checking
+IIDX_SET = set(IIDX)
+
 
 def decode_combination(combo_raw):
     """Decode a raw combination value to 8 cell values (0=empty, 1=box, 2=wall)."""
@@ -102,13 +105,13 @@ def has_box_in_front(combo_idx):
     return (combo_raw % 3) == 1  # Position 0 is front
 
 
-def load_agent(filepath):
+def load_agent(filepath, num_states=128):
     """Load agent from file. Returns (actions, next_states, initial_state)."""
     with open(filepath, 'r') as f:
         data = list(map(int, f.read().split()))
 
-    G = NUM_STATES * C + 1
-    assert len(data) == 2 * G, f"Expected {2*G} values, got {len(data)}"
+    G = num_states * C + 1
+    assert len(data) == 2 * G, f"Expected {2*G} values for {num_states} states, got {len(data)}"
 
     actions = []
     next_states = []
@@ -159,6 +162,8 @@ def compute_sensor_input(board, cpx, cpy, direction):
         else:
             val = board[sx * 6 + sy]
         cc += POW3[m] * val
+    if cc not in IIDX_SET:
+        print(f"WARNING: Invalid cc={cc} at ({cpx},{cpy}) dir={direction}")
     return IX[cc], cc  # Return both mapped index and raw value
 
 
@@ -245,10 +250,11 @@ def run_agent_on_board(actions, next_states, initial_state, board_template, star
     return fitness, state_sequence, step_details
 
 
-def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
+def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=128):
     """Main analysis function."""
     print("Loading agent...")
-    actions, next_states, initial_state = load_agent(agent_path)
+    actions, next_states, initial_state = load_agent(agent_path, num_states)
+    print(f"  Num states: {num_states}")
     print(f"  Initial state: {initial_state}")
     print(f"  Total genes: {len(actions)}")
 
@@ -265,7 +271,7 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
         'action_counts': {'forward': 0, 'push': 0, 'turn_left': 0, 'turn_right': 0},
         'combo_counts': defaultdict(int),  # combo_idx -> count
         'visit_count': 0
-    } for s in range(NUM_STATES)}
+    } for s in range(num_states)}
 
     # All state sequences (for pattern analysis)
     all_sequences = []
@@ -375,9 +381,9 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
 
     with open(f'{output_prefix}_transitions.json', 'w') as f:
         json.dump({
-            'nodes': list(range(NUM_STATES)),
+            'nodes': list(range(num_states)),
             'edges': edges,
-            'num_states': NUM_STATES,
+            'num_states': num_states,
             'total_configs': config_count
         }, f, indent=2)
     print(f"  Saved transition graph to {output_prefix}_transitions.json")
@@ -393,7 +399,7 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
 
     # 2. Per-state statistics
     stats_output = {}
-    for s in range(NUM_STATES):
+    for s in range(num_states):
         stats = state_stats[s]
         # Convert defaultdict to regular dict for JSON
         combo_counts = dict(stats['combo_counts'])
@@ -478,7 +484,7 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
     print("="*60)
 
     # Sort states by visit count
-    sorted_states = sorted(range(NUM_STATES), key=lambda s: -state_stats[s]['visit_count'])
+    sorted_states = sorted(range(num_states), key=lambda s: -state_stats[s]['visit_count'])
 
     print(f"\nTop 20 most visited states:")
     print(f"{'State':>6} {'Visits':>10} {'Forward':>8} {'Push':>8} {'TurnL':>8} {'TurnR':>8}")
@@ -494,7 +500,7 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
 
     # Find states that push most
     print(f"\nTop 10 'pusher' states (by push count):")
-    pusher_states = sorted(range(NUM_STATES), key=lambda s: -state_stats[s]['action_counts']['push'])
+    pusher_states = sorted(range(num_states), key=lambda s: -state_stats[s]['action_counts']['push'])
     for s in pusher_states[:10]:
         stats = state_stats[s]
         push_count = stats['action_counts']['push']
@@ -507,18 +513,18 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis'):
     print("="*60)
 
     # Count outgoing edges per state
-    out_degree = {s: len(transition_counts[s]) for s in range(NUM_STATES)}
+    out_degree = {s: len(transition_counts[s]) for s in range(num_states)}
     in_degree = defaultdict(int)
     for from_s, targets in transition_counts.items():
         for to_s in targets:
             in_degree[to_s] += 1
 
     print(f"\nStates with highest out-degree (most diverse transitions):")
-    for s in sorted(range(NUM_STATES), key=lambda x: -out_degree[x])[:10]:
+    for s in sorted(range(num_states), key=lambda x: -out_degree[x])[:10]:
         print(f"  State {s}: {out_degree[s]} different target states")
 
     print(f"\nStates with highest in-degree (most commonly transitioned to):")
-    for s in sorted(range(NUM_STATES), key=lambda x: -in_degree[x])[:10]:
+    for s in sorted(range(num_states), key=lambda x: -in_degree[x])[:10]:
         total_incoming = sum(transition_counts[from_s][s] for from_s in transition_counts if s in transition_counts[from_s])
         print(f"  State {s}: transitions from {in_degree[s]} states ({total_incoming} total transitions)")
 
@@ -590,5 +596,6 @@ if __name__ == '__main__':
     agent_path = sys.argv[1] if len(sys.argv) > 1 else 'best/b-D2-4096-128-2000-1.txt'
     boards_path = sys.argv[2] if len(sys.argv) > 2 else 'realboard.txt'
     output_prefix = sys.argv[3] if len(sys.argv) > 3 else 'analysis'
+    num_states = int(sys.argv[4]) if len(sys.argv) > 4 else 128
 
-    analyze_agent(agent_path, boards_path, output_prefix)
+    analyze_agent(agent_path, boards_path, output_prefix, num_states)
