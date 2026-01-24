@@ -70,16 +70,28 @@ def decode_combination(combo_raw):
 def describe_combination(combo_idx):
     """
     Get human-readable description of what the agent sees.
-    Positions: 0=front, 1=front-right, 2=right, 3=back-right,
-               4=back, 5=back-left, 6=left, 7=front-left
+
+    Due to coordinate transposition (board[col*6+row] instead of board[row*6+col]),
+    the agent's internal positions map to PHYSICAL directions as follows:
+        Agent pos 0 (code "F")  -> Physical Left (L)
+        Agent pos 1 (code "FR") -> Physical Back-Left (BL)
+        Agent pos 2 (code "R")  -> Physical Back (B)
+        Agent pos 3 (code "BR") -> Physical Back-Right (BR)
+        Agent pos 4 (code "B")  -> Physical Right (R)
+        Agent pos 5 (code "BL") -> Physical Front-Right (FR)
+        Agent pos 6 (code "L")  -> Physical Front (F)
+        Agent pos 7 (code "FL") -> Physical Front-Left (FL)
+
+    We use PHYSICAL direction names in the output.
     """
     if combo_idx >= len(IIDX):
         return "invalid"
     combo_raw = IIDX[combo_idx]
     cells = decode_combination(combo_raw)
-    pos_names = ['F', 'FR', 'R', 'BR', 'B', 'BL', 'L', 'FL']
+    # Physical direction names for each agent position
+    phys_names = ['L', 'BL', 'B', 'BR', 'R', 'FR', 'F', 'FL']
     val_names = ['_', 'B', 'W']  # empty, box, wall
-    return ''.join(f"{pos_names[i]}:{val_names[cells[i]]}" for i in range(8) if cells[i] != 0)
+    return ''.join(f"{phys_names[i]}:{val_names[cells[i]]}" for i in range(8) if cells[i] != 0)
 
 
 def has_box_in_front(combo_idx):
