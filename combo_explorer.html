@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tartarus Combination Explorer</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            color: #fff;
+        }
+        .subtitle {
+            color: #888;
+            margin-bottom: 20px;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            height: calc(100vh - 120px);
+        }
+        .panel {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 15px;
+            overflow-y: auto;
+        }
+        .left-panel {
+            width: 300px;
+            flex-shrink: 0;
+        }
+        .center-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .right-panel {
+            width: 350px;
+            flex-shrink: 0;
+        }
+        .search-box {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            background: #0f0f23;
+            color: #fff;
+            margin-bottom: 10px;
+        }
+        .filter-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .filter-row select {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            background: #0f0f23;
+            color: #fff;
+        }
+        .combo-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .combo-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            background: #0f3460;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .combo-item:hover {
+            background: #1a5f7a;
+        }
+        .combo-item.selected {
+            background: #e94560;
+        }
+        .combo-item .info {
+            flex: 1;
+            font-size: 12px;
+        }
+        .combo-item .visits {
+            font-size: 11px;
+            color: #aaa;
+        }
+
+        /* 3x3 Grid visualization */
+        .grid-3x3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1px;
+            background: #333;
+            border: 1px solid #333;
+            width: fit-content;
+        }
+        .grid-3x3.small {
+            width: 36px;
+            height: 36px;
+        }
+        .grid-3x3.small .cell {
+            width: 12px;
+            height: 12px;
+        }
+        .grid-3x3.large {
+            width: 150px;
+            height: 150px;
+        }
+        .grid-3x3.large .cell {
+            width: 50px;
+            height: 50px;
+            font-size: 20px;
+        }
+        .cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .cell.empty { background: #f0f0f0; }
+        .cell.box { background: #ff9800; }
+        .cell.wall { background: #333; }
+        .cell.agent { background: #4caf50; }
+
+        /* Selected combination display */
+        .selected-combo {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background: #0f3460;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .selected-combo h2 {
+            margin: 0 0 15px 0;
+            color: #e94560;
+        }
+        .selected-combo .grid-3x3.large {
+            margin-bottom: 15px;
+        }
+        .arrow-indicator {
+            font-size: 24px;
+            color: #4caf50;
+            margin-bottom: 10px;
+        }
+
+        /* Stats display */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+            width: 100%;
+        }
+        .stat-box {
+            background: #16213e;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-box .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+        }
+        .stat-box .label {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+        }
+
+        /* Action bars */
+        .action-bars {
+            margin-top: 15px;
+            width: 100%;
+        }
+        .action-bar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .action-bar .name {
+            width: 80px;
+            font-size: 12px;
+        }
+        .action-bar .bar-container {
+            flex: 1;
+            height: 20px;
+            background: #0f0f23;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .action-bar .bar {
+            height: 100%;
+            transition: width 0.3s;
+        }
+        .action-bar .bar.forward { background: #4caf50; }
+        .action-bar .bar.push { background: #ff9800; }
+        .action-bar .bar.turn_left { background: #2196f3; }
+        .action-bar .bar.turn_right { background: #9c27b0; }
+        .action-bar .count {
+            width: 60px;
+            text-align: right;
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        /* Neighbors section */
+        .neighbors-section h3 {
+            margin: 0 0 10px 0;
+            color: #fff;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .neighbors-section h3 .count {
+            background: #e94560;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+        }
+        .neighbors-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .neighbor-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px;
+            background: #0f3460;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .neighbor-item:hover {
+            background: #1a5f7a;
+            transform: scale(1.05);
+        }
+        .neighbor-item .weight {
+            font-size: 10px;
+            color: #aaa;
+            margin-top: 4px;
+        }
+
+        /* States section */
+        .states-section {
+            margin-top: 15px;
+        }
+        .states-section h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+        }
+        .states-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .state-tag {
+            background: #0f3460;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        .state-tag .count {
+            color: #888;
+        }
+
+        /* No selection state */
+        .no-selection {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #666;
+        }
+        .no-selection .icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #0f3460;
+            border-radius: 4px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 12px;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tartarus Combination Explorer</h1>
+    <p class="subtitle">Interactive visualization of agent perception combinations and transitions</p>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #f0f0f0; border: 1px solid #333;"></div>
+            <span>Empty</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff9800;"></div>
+            <span>Box</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #333;"></div>
+            <span>Wall</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #4caf50;"></div>
+            <span>Agent (facing up)</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="panel left-panel">
+            <input type="text" class="search-box" id="searchBox" placeholder="Search combinations...">
+            <div class="filter-row">
+                <select id="sortBy">
+                    <option value="visits">Sort by Visits</option>
+                    <option value="push">Sort by Push %</option>
+                    <option value="states">Sort by # States</option>
+                    <option value="index">Sort by Index</option>
+                </select>
+            </div>
+            <div class="combo-list" id="comboList">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <div class="panel center-panel">
+            <div id="selectedDisplay">
+                <div class="no-selection">
+                    <div class="icon">&#8596;</div>
+                    <p>Select a combination from the list to explore</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel right-panel">
+            <div id="neighborsDisplay">
+                <div class="no-selection">
+                    <div class="icon">&#8644;</div>
+                    <p>Neighbors will appear here</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data will be loaded from JSON files
+        let comboTransitions = null;
+        let comboStats = null;
+        let selectedCombo = null;
+
+        // IIDX mapping (same as Python)
+        const IIDX = [0,1,3,4,9,10,12,13,27,28,30,31,36,37,39,40,78,79,81,82,84,85,90,91,93,94,108,109,111,112,117,118,120,121,159,160,243,244,246,247,252,253,255,256,270,271,273,274,279,280,282,283,321,322,324,325,327,328,333,334,336,337,351,352,354,355,360,361,363,364,402,403,702,703,705,706,711,712,714,715,726,727,729,730,732,733,738,739,741,742,756,757,759,760,765,766,768,769,807,808,810,811,813,814,819,820,822,823,837,838,840,841,846,847,849,850,888,972,973,975,976,981,982,984,985,999,1000,1002,1003,1008,1009,1011,1012,1050,1051,1053,1054,1056,1057,1062,1063,1065,1066,1080,1081,1083,1084,1089,1090,1092,1131,1431,1432,1434,1435,1440,1443,1455,2187,2188,2190,2191,2196,2197,2199,2200,2214,2215,2217,2218,2223,2224,2226,2227,2265,2266,2268,2269,2271,2272,2277,2278,2280,2281,2295,2296,2298,2299,2304,2305,2307,2308,2346,2347,2430,2431,2433,2434,2439,2440,2442,2443,2457,2458,2460,2461,2466,2467,2469,2470,2508,2509,2511,2512,2514,2515,2520,2521,2523,2524,2538,2539,2541,2542,2547,2548,2550,2589,2590,2889,2890,2892,2893,2898,2899,2901,2902,2913,2914,2916,2917,2919,2920,2925,2926,2928,2929,2943,2944,2946,2947,2952,2953,2955,2956,2994,2995,2997,2998,3000,3001,3006,3007,3009,3010,3024,3025,3027,3028,3033,3034,3036,3075,3159,3160,3162,3163,3168,3169,3171,3172,3186,3187,3189,3190,3195,3196,3198,3237,3238,3240,3241,3243,3244,3249,3250,3252,3267,3268,3270,3276,3318,3618,3619,3621,3622,3627,3630,3642,4382,4391,4409,4418,4454,4463,4472,4490,4499,4535,4625,4634,4652,4661,4697,4706,4715,4733,4742,4778,5111,5120,5138,5147,5183,5192,5219,5354,5363,5381,5390,5426,5435,5462,6318,6319,6321,6322,6326,6327,6328,6330,6331,6335,6345,6346,6348,6349,6353,6354,6355,6357,6358,6362,6399,6400,6402,6403,6407,6408,6411,6426,6427,6429,6430,6434,6435,6438,6534,6535,6537,6538,6543,6546];
+
+        // Decode raw combo value to 8 cell values
+        function decodeCombination(comboRaw) {
+            const cells = [];
+            let val = comboRaw;
+            for (let i = 0; i < 8; i++) {
+                cells.push(val % 3);
+                val = Math.floor(val / 3);
+            }
+            return cells;
+        }
+
+        // Create 3x3 grid HTML
+        // Positions go CLOCKWISE from front: 0=F, 1=FR, 2=R, 3=BR, 4=B, 5=BL, 6=L, 7=FL
+        // Grid layout (agent facing up):
+        //   [7=FL] [0=F]  [1=FR]
+        //   [6=L]  [Agent] [2=R]
+        //   [5=BL] [4=B]  [3=BR]
+        function createGrid(comboIdx, size = 'small') {
+            const comboRaw = IIDX[comboIdx];
+            const cells = decodeCombination(comboRaw);
+
+            const cellClasses = ['empty', 'box', 'wall'];
+            const gridPositions = [7, 0, 1, 6, -1, 2, 5, 4, 3]; // -1 is agent
+
+            let html = `<div class="grid-3x3 ${size}">`;
+            for (let i = 0; i < 9; i++) {
+                const pos = gridPositions[i];
+                if (pos === -1) {
+                    html += `<div class="cell agent">${size === 'large' ? '&#9650;' : ''}</div>`;
+                } else {
+                    const cellType = cellClasses[cells[pos]];
+                    html += `<div class="cell ${cellType}"></div>`;
+                }
+            }
+            html += '</div>';
+            return html;
+        }
+
+        // Agent's perspective: position names as the agent perceives them (clockwise from front)
+        // pos 0=Front, 1=Front-Right, 2=Right, 3=Back-Right, 4=Back, 5=Back-Left, 6=Left, 7=Front-Left
+        const POS_NAMES = ['F', 'FR', 'R', 'BR', 'B', 'BL', 'L', 'FL'];
+        const VAL_NAMES = ['', 'Box', 'Wall'];
+
+        // Get description string using agent's perspective
+        function getDescription(comboIdx) {
+            const comboRaw = IIDX[comboIdx];
+            const cells = decodeCombination(comboRaw);
+            const parts = [];
+            for (let i = 0; i < 8; i++) {
+                if (cells[i] !== 0) {
+                    parts.push(`${POS_NAMES[i]}:${VAL_NAMES[cells[i]]}`);
+                }
+            }
+            return parts.length > 0 ? parts.join(', ') : 'All empty';
+        }
+
+        // Load data and initialize
+        async function init() {
+            try {
+                const [transResponse, statsResponse] = await Promise.all([
+                    fetch('analysis_combo_transitions.json'),
+                    fetch('analysis_combo_stats.json')
+                ]);
+
+                if (!transResponse.ok || !statsResponse.ok) {
+                    throw new Error('Could not load data files. Run analyze_agent.py first.');
+                }
+
+                comboTransitions = await transResponse.json();
+                comboStats = await statsResponse.json();
+
+                // Build edge lookup
+                buildEdgeLookup();
+
+                // Populate combo list
+                renderComboList();
+
+            } catch (error) {
+                document.getElementById('comboList').innerHTML = `
+                    <div style="color: #e94560; padding: 20px; text-align: center;">
+                        <p><strong>Error loading data</strong></p>
+                        <p style="font-size: 12px;">${error.message}</p>
+                        <p style="font-size: 12px; color: #888;">
+                            Make sure to run:<br>
+                            <code>python analyze_agent.py</code><br>
+                            to generate the JSON files first.
+                        </p>
+                    </div>
+                `;
+            }
+        }
+
+        // Build edge lookup for quick neighbor access
+        let outEdges = {};  // comboIdx -> [{target, weight}, ...]
+        let inEdges = {};   // comboIdx -> [{source, weight}, ...]
+
+        function buildEdgeLookup() {
+            outEdges = {};
+            inEdges = {};
+
+            for (const edge of comboTransitions.edges) {
+                const src = edge.source;
+                const tgt = edge.target;
+                const weight = edge.weight;
+
+                if (!outEdges[src]) outEdges[src] = [];
+                outEdges[src].push({ target: tgt, weight });
+
+                if (!inEdges[tgt]) inEdges[tgt] = [];
+                inEdges[tgt].push({ source: src, weight });
+            }
+
+            // Sort by weight descending
+            for (const key in outEdges) {
+                outEdges[key].sort((a, b) => b.weight - a.weight);
+            }
+            for (const key in inEdges) {
+                inEdges[key].sort((a, b) => b.weight - a.weight);
+            }
+        }
+
+        // Render combo list
+        function renderComboList() {
+            const listEl = document.getElementById('comboList');
+            const sortBy = document.getElementById('sortBy').value;
+            const searchText = document.getElementById('searchBox').value.toLowerCase();
+
+            // Get all visited combos
+            let combos = Object.keys(comboStats).map(k => parseInt(k));
+
+            // Filter by search
+            if (searchText) {
+                combos = combos.filter(c => {
+                    const desc = (comboStats[c].description || '').toLowerCase();
+                    return desc.includes(searchText) || c.toString().includes(searchText);
+                });
+            }
+
+            // Sort
+            switch (sortBy) {
+                case 'visits':
+                    combos.sort((a, b) => comboStats[b].visit_count - comboStats[a].visit_count);
+                    break;
+                case 'push':
+                    combos.sort((a, b) => {
+                        const pushA = comboStats[a].action_counts.push / comboStats[a].visit_count;
+                        const pushB = comboStats[b].action_counts.push / comboStats[b].visit_count;
+                        return pushB - pushA;
+                    });
+                    break;
+                case 'states':
+                    combos.sort((a, b) => comboStats[b].num_states - comboStats[a].num_states);
+                    break;
+                case 'index':
+                    combos.sort((a, b) => a - b);
+                    break;
+            }
+
+            let html = '';
+            for (const c of combos) {
+                const stats = comboStats[c];
+                const isSelected = c === selectedCombo;
+                html += `
+                    <div class="combo-item ${isSelected ? 'selected' : ''}" onclick="selectCombo(${c})">
+                        ${createGrid(c, 'small')}
+                        <div class="info">
+                            <div><strong>#${c}</strong></div>
+                            <div class="visits">${stats.visit_count.toLocaleString()} visits</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            listEl.innerHTML = html;
+        }
+
+        // Select a combination
+        function selectCombo(comboIdx) {
+            selectedCombo = comboIdx;
+            renderComboList();
+            renderSelectedDisplay();
+            renderNeighborsDisplay();
+        }
+
+        // Render selected combination display
+        function renderSelectedDisplay() {
+            const displayEl = document.getElementById('selectedDisplay');
+
+            if (selectedCombo === null || !comboStats[selectedCombo]) {
+                displayEl.innerHTML = `
+                    <div class="no-selection">
+                        <div class="icon">&#8596;</div>
+                        <p>Select a combination from the list to explore</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const stats = comboStats[selectedCombo];
+            const total = stats.visit_count;
+            const actions = stats.action_counts;
+
+            // Calculate percentages
+            const pcts = {
+                forward: (actions.forward / total * 100).toFixed(1),
+                push: (actions.push / total * 100).toFixed(1),
+                turn_left: (actions.turn_left / total * 100).toFixed(1),
+                turn_right: (actions.turn_right / total * 100).toFixed(1)
+            };
+
+            const maxAction = Math.max(actions.forward, actions.push, actions.turn_left, actions.turn_right);
+
+            const description = getDescription(selectedCombo);
+
+            let html = `
+                <div class="selected-combo">
+                    <h2>Combination #${selectedCombo}</h2>
+                    <div class="arrow-indicator">&#9650; Agent facing up (Forward)</div>
+                    ${createGrid(selectedCombo, 'large')}
+                    <p style="color: #888; font-size: 12px;">${description}</p>
+
+                    <div class="stats">
+                        <div class="stat-box">
+                            <div class="value">${total.toLocaleString()}</div>
+                            <div class="label">Total Visits</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="value">${stats.num_states}</div>
+                            <div class="label">States Using This</div>
+                        </div>
+                    </div>
+
+                    <div class="action-bars">
+                        <div class="action-bar">
+                            <span class="name">Forward</span>
+                            <div class="bar-container">
+                                <div class="bar forward" style="width: ${actions.forward / maxAction * 100}%"></div>
+                            </div>
+                            <span class="count">${actions.forward.toLocaleString()} (${pcts.forward}%)</span>
+                        </div>
+                        <div class="action-bar">
+                            <span class="name">Push</span>
+                            <div class="bar-container">
+                                <div class="bar push" style="width: ${actions.push / maxAction * 100}%"></div>
+                            </div>
+                            <span class="count">${actions.push.toLocaleString()} (${pcts.push}%)</span>
+                        </div>
+                        <div class="action-bar">
+                            <span class="name">Turn Left</span>
+                            <div class="bar-container">
+                                <div class="bar turn_left" style="width: ${actions.turn_left / maxAction * 100}%"></div>
+                            </div>
+                            <span class="count">${actions.turn_left.toLocaleString()} (${pcts.turn_left}%)</span>
+                        </div>
+                        <div class="action-bar">
+                            <span class="name">Turn Right</span>
+                            <div class="bar-container">
+                                <div class="bar turn_right" style="width: ${actions.turn_right / maxAction * 100}%"></div>
+                            </div>
+                            <span class="count">${actions.turn_right.toLocaleString()} (${pcts.turn_right}%)</span>
+                        </div>
+                    </div>
+
+                    <div class="states-section">
+                        <h3>States that visit this combination</h3>
+                        <div class="states-list">
+                            ${stats.top_states.slice(0, 15).map(s => `
+                                <span class="state-tag">S${s.state} <span class="count">(${s.count.toLocaleString()})</span></span>
+                            `).join('')}
+                            ${stats.num_states > 15 ? `<span class="state-tag">+${stats.num_states - 15} more</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            displayEl.innerHTML = html;
+        }
+
+        // Render neighbors display
+        function renderNeighborsDisplay() {
+            const displayEl = document.getElementById('neighborsDisplay');
+
+            if (selectedCombo === null) {
+                displayEl.innerHTML = `
+                    <div class="no-selection">
+                        <div class="icon">&#8644;</div>
+                        <p>Neighbors will appear here</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const out = outEdges[selectedCombo] || [];
+            const inc = inEdges[selectedCombo] || [];
+
+            // Separate self-loop if present
+            const selfLoop = out.find(e => e.target === selectedCombo);
+            const outgoing = out.filter(e => e.target !== selectedCombo);
+            const incoming = inc.filter(e => e.source !== selectedCombo);
+
+            let html = '';
+
+            // Self-loop
+            if (selfLoop) {
+                html += `
+                    <div class="neighbors-section">
+                        <h3>&#8634; Self-loop <span class="count">${selfLoop.weight.toLocaleString()}</span></h3>
+                        <p style="font-size: 12px; color: #888;">Agent stays in same perception ${selfLoop.weight.toLocaleString()} times</p>
+                    </div>
+                `;
+            }
+
+            // Outgoing
+            html += `
+                <div class="neighbors-section">
+                    <h3>&#8594; Leads to <span class="count">${outgoing.length}</span></h3>
+                    <div class="neighbors-grid">
+                        ${outgoing.slice(0, 20).map(e => `
+                            <div class="neighbor-item" onclick="selectCombo(${e.target})">
+                                ${createGrid(e.target, 'small')}
+                                <span class="weight">${e.weight.toLocaleString()}</span>
+                            </div>
+                        `).join('')}
+                        ${outgoing.length > 20 ? `<div class="neighbor-item" style="opacity: 0.5;">+${outgoing.length - 20} more</div>` : ''}
+                    </div>
+                </div>
+            `;
+
+            // Incoming
+            html += `
+                <div class="neighbors-section">
+                    <h3>&#8592; Comes from <span class="count">${incoming.length}</span></h3>
+                    <div class="neighbors-grid">
+                        ${incoming.slice(0, 20).map(e => `
+                            <div class="neighbor-item" onclick="selectCombo(${e.source})">
+                                ${createGrid(e.source, 'small')}
+                                <span class="weight">${e.weight.toLocaleString()}</span>
+                            </div>
+                        `).join('')}
+                        ${incoming.length > 20 ? `<div class="neighbor-item" style="opacity: 0.5;">+${incoming.length - 20} more</div>` : ''}
+                    </div>
+                </div>
+            `;
+
+            displayEl.innerHTML = html;
+        }
+
+        // Event listeners
+        document.getElementById('sortBy').addEventListener('change', renderComboList);
+        document.getElementById('searchBox').addEventListener('input', renderComboList);
+
+        // Initialize
+        init();
+    </script>
+</body>
+</html>
