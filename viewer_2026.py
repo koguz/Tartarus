@@ -157,7 +157,7 @@ def runboard(tartarus, cp, cd, cs, a, s, im, ima, imb, ime, saveImages: bool, ou
 
 # --- Main Execution ---
 
-agent_path = "best/b-D2-4096-128-2000-1.txt"
+agent_path = "best/b-D2-4096-128-3000-1.txt"
 print(f"Loading agent from: {agent_path}")
 
 try:
