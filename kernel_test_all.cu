@@ -104,7 +104,8 @@ __global__ void run_boards(
 			if (sx < 0 || sy < 0 || sx >= 6 || sy >= 6) {
 				val = 2;  // wall
 			} else {
-				val = board[sx * 6 + sy];
+				// val = board[sx * 6 + sy];
+				val = board[sy * 6 + sx];
 			}
 			cc += POW3[m] * val;
 		}
@@ -119,14 +120,15 @@ __global__ void run_boards(
 			int cx = cpx + DIR_X[dir];
 			int cy = cpy + DIR_Y[dir];
 			if (cx >= 0 && cy >= 0 && cx < 6 && cy < 6) {
-				if (board[cx * 6 + cy] == 0) {
+				// if (board[cx * 6 + cy] == 0) { 
+				if (board[cy * 6 + cx] == 0) {
 					cpx = cx; cpy = cy;
 				} else {
 					int dx = cx + DIR_X[dir];
 					int dy = cy + DIR_Y[dir];
-					if (dx >= 0 && dy >= 0 && dx < 6 && dy < 6 && board[dx * 6 + dy] == 0) {
-						board[cx * 6 + cy] = 0;
-						board[dx * 6 + dy] = 1;
+					if (dx >= 0 && dy >= 0 && dx < 6 && dy < 6 && board[dy * 6 + dx] == 0) {
+						board[cy * 6 + cx] = 0;
+						board[dy * 6 + dx] = 1;
 						cpx = cx; cpy = cy;
 					}
 				}

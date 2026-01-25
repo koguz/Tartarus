@@ -159,7 +159,8 @@ __global__ void run_all_boards_D2(
         for (int m = 0; m < 8; m++) {
             int sx = cpx + SCAN_X[dir][m];
             int sy = cpy + SCAN_Y[dir][m];
-            int val = (sx < 0 || sy < 0 || sx >= 6 || sy >= 6) ? 2 : board[sx * 6 + sy];
+            // int val = (sx < 0 || sy < 0 || sx >= 6 || sy >= 6) ? 2 : board[sx * 6 + sy];
+            int val = (sx < 0 || sy < 0 || sx >= 6 || sy >= 6) ? 2 : board[sy * 6 + sx];
             cc += POW3[m] * val;
         }
         cc = CONST_IX[cc];
@@ -185,14 +186,16 @@ __global__ void run_all_boards_D2(
             int cx = cpx + DIR_X[dir];
             int cy = cpy + DIR_Y[dir];
             if (cx >= 0 && cy >= 0 && cx < 6 && cy < 6) {
-                if (board[cx * 6 + cy] == 0) {
+                // if (board[cx * 6 + cy] == 0) {
+                if (board[cy * 6 + cx] == 0) {
                     cpx = cx; cpy = cy;
                 } else {
                     int dx = cx + DIR_X[dir];
                     int dy = cy + DIR_Y[dir];
-                    if (dx >= 0 && dy >= 0 && dx < 6 && dy < 6 && board[dx * 6 + dy] == 0) {
-                        board[cx * 6 + cy] = 0;
-                        board[dx * 6 + dy] = 1;
+                    // if (dx >= 0 && dy >= 0 && dx < 6 && dy < 6 && board[dx * 6 + dy] == 0) {
+                    if (dx >= 0 && dy >= 0 && dx < 6 && dy < 6 && board[dy * 6 + dx] == 0) {
+                        board[cy * 6 + cx] = 0;
+                        board[dy * 6 + dx] = 1;
                         cpx = cx; cpy = cy;
                     }
                 }
