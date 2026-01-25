@@ -160,7 +160,7 @@ def compute_sensor_input(board, cpx, cpy, direction):
         if sx < 0 or sy < 0 or sx >= 6 or sy >= 6:
             val = 2  # Wall (out of bounds)
         else:
-            val = board[sx * 6 + sy]
+            val = board[sy * 6 + sx]
         cc += POW3[m] * val
     if cc not in IIDX_SET:
         print(f"WARNING: Invalid cc={cc} at ({cpx},{cpy}) dir={direction}")
@@ -217,17 +217,17 @@ def run_agent_on_board(actions, next_states, initial_state, board_template, star
             cx = cpx + DIR_X[dir_]
             cy = cpy + DIR_Y[dir_]
             if 0 <= cx < 6 and 0 <= cy < 6:
-                if board[cx * 6 + cy] == 0:
+                if board[cy * 6 + cx] == 0: 
                     # Move to empty cell
                     cpx, cpy = cx, cy
-                elif board[cx * 6 + cy] == 1:
+                elif board[cy * 6 + cx] == 1:
                     # Try to push box
                     dx = cx + DIR_X[dir_]
                     dy = cy + DIR_Y[dir_]
-                    if 0 <= dx < 6 and 0 <= dy < 6 and board[dx * 6 + dy] == 0:
+                    if 0 <= dx < 6 and 0 <= dy < 6 and board[dy * 6 + dx] == 0:
                         # Push successful
-                        board[cx * 6 + cy] = 0
-                        board[dx * 6 + dy] = 1
+                        board[cy * 6 + cx] = 0
+                        board[dy * 6 + dx] = 1
                         cpx, cpy = cx, cy
         elif action == 1:  # Turn left
             dir_ = TURN_LEFT[dir_]
@@ -593,7 +593,7 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
 if __name__ == '__main__':
     import sys
 
-    agent_path = sys.argv[1] if len(sys.argv) > 1 else 'best/b-D2-4096-128-2000-1.txt'
+    agent_path = sys.argv[1] if len(sys.argv) > 1 else 'best/b-D2-4096-128-3000-1.txt'
     boards_path = sys.argv[2] if len(sys.argv) > 2 else 'realboard.txt'
     output_prefix = sys.argv[3] if len(sys.argv) > 3 else 'analysis'
     num_states = int(sys.argv[4]) if len(sys.argv) > 4 else 128
