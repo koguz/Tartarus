@@ -1,6 +1,6 @@
 # Tartarus
 
-GPU-accelerated evolution of Finite State Machines (FSMs) to solve the Tartarus problem.
+GPU-accelerated evolution of Finite State Machines (FSMs) to solve the Tartarus problem. Currently extending it to include the analysis of the new agent that scores 9.84 in all 74,760 Tartarus boards. 
 
 ## The Tartarus Problem
 
@@ -38,11 +38,11 @@ Compile using `nvcc -arch=sm_120 -o Tartarus74K.exe kernel_allboards.cu -lcurand
 | File | Description | Requirements |
 |------|-------------|--------------|
 | `visualize_analysis.py` | Generate heatmaps, network graphs, state profiles | `pip install pandas numpy matplotlib seaborn networkx` |
-| `combo_lookup.py` | Look up what each of the 383 combinations looks like | None (standard library) |
+| `visualize_graph.py` | Visualizes the graph | `pip install numpy matplotlib networkx` |
 
 ### Data Files
 
-The realboard.txt contains all 1,869 unique board layouts. Start the agent in the remaining 10 positions with a random orientation. This results in 1869 * 4 * 10 = 74760 unique boards [^2]. The boards.txt contains the boards before we showed that the number of boards is 74760 in the 2020 paper [^1][^2]. 
+The realboard.txt contains all 1,869 unique board layouts. Start the agent in the remaining 10 positions with a random orientation. This results in 1869 * 10 * 4 = 74760 unique boards [^2]. The boards.txt contains the boards before we showed that the number of boards is 74760 in the 2020 paper [^1][^2]. 
 ## Usage
 
 ### Training with Sampled Boards (kernel_2026.cu)
@@ -66,11 +66,11 @@ Example:
 Tartarus2026.exe 5 16 1000 4 1 1
 ```
 
-### Training on All Boards (kernel_allboards.cu)
+### Training on All Boards using D2 (kernel_D2_allboards.cu)
 
 ```bash
-nvcc -o Tartarus74K.exe kernel_allboards.cu -lcurand
-Tartarus74K.exe <N> <S> <K> <L>
+nvcc -o TartarusD2.exe kernel_D2_allboards.cu -lcurand
+TartarusD2.exe <N> <S> <K> <L>
 ```
 
 | Parameter | Description | Example |
@@ -82,7 +82,7 @@ Tartarus74K.exe <N> <S> <K> <L>
 
 Example:
 ```bash
-Tartarus74K.exe 1024 24 6000 1
+TartarusD2.exe 1024 24 6000 1
 ```
 
 Output files:
@@ -148,12 +148,12 @@ Generates PNG visualizations:
 | Configuration | States | Score | Notes |
 |---------------|--------|-------|-------|
 | 2020 Paper (baseline) | 8 | 8.54 | Sampled training |
-| kernel_2026 (P=512) | 16 | 8.85 | Training fitness (overfit) |
+| kernel_2026 (P=512) | 16 | 8.85 | Training fitness |
 | kernel_allboards | 16 | 8.77 | True fitness |
 | kernel_allboards | 20 | 8.96 | True fitness |
-| kernel_allboards | 24 | 9.32 | **Current best** |
+| kernel_allboards_D2 | 128 | 9.84 | **Current best** |
 
-## FSM Structure
+## FSM Structure for D2
 
 Each FSM solution consists of:
 - `S` states (e.g., 24)
@@ -163,6 +163,8 @@ Each FSM solution consists of:
 Each gene contains:
 - `action`: 0 (forward), 1 (turn left), 2 (turn right)
 - `next_state`: which state to transition to (0 to S-1)
+- `used`: how many times this combination is used
+- `fitness`: fitness value of this combination 
 
 The last gene (`G-1`) stores the initial state.
 
