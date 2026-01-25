@@ -351,3 +351,4 @@ healthchecksdb
 *.pkl
 
 lib/
+*.zip
