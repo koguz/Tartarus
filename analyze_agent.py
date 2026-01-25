@@ -294,6 +294,8 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
     total_fitness = 0
     config_count = 0
 
+    failed_configs = []
+
     print("Running agent on all configurations...")
     for board_idx, board in enumerate(boards):
         # Find empty positions in inner 4x4
@@ -309,6 +311,16 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
                 total_fitness += fitness
                 config_count += 1
                 fitness_distribution[fitness] += 1
+
+                # failed ones.
+                if fitness <= 6:
+                    failed_configs.append({
+                        'board_idx': board_idx,
+                        'start_pos': [start_x, start_y],
+                        'direction': direction,
+                        'score': fitness,
+                        'board_layout': board  # Optional: save the full board array
+                    })
 
                 # Store sequence
                 all_sequences.append(state_seq)
@@ -396,6 +408,11 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
             'average_fitness': avg_fitness
         }, f, indent=2)
     print(f"  Saved fitness distribution to {output_prefix}_fitness_dist.json")
+
+    # Save failed configurations
+    with open(f'{output_prefix}_failed_boards.json', 'w') as f:
+        json.dump(failed_configs, f, indent=2)
+    print(f"Saved {len(failed_configs)} failed configurations to {output_prefix}_failed_boards.json")
 
     # 2. Per-state statistics
     stats_output = {}
