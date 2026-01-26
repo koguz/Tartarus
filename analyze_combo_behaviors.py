@@ -28,6 +28,7 @@ Examples:
 
 import json
 import sys
+import csv
 from collections import defaultdict, Counter, deque
 
 # Combination decoding (from analyze_agent.py)
@@ -368,6 +369,16 @@ def analyze_combo_behaviors(prefix='analysis', min_weight=100, max_path_length=1
 
     cycles = find_cycles(forward_adj, min_weight=min_weight, max_length=8)
     cycles.sort(key=lambda x: x[1], reverse=True)  # Sort by minimum edge weight
+
+    # Save cycles to CSV file
+    cycles_csv_file = f'{prefix}_combo_cycles.csv'
+    with open(cycles_csv_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['cycle', 'length', 'min_weight'])
+        for cycle, min_edge_weight in cycles:
+            cycle_str = '-'.join(map(str, cycle))
+            writer.writerow([cycle_str, len(cycle), min_edge_weight])
+    print(f"Saved {len(cycles)} cycles to {cycles_csv_file}")
 
     print(f"\nFound {len(cycles)} cycles with min edge weight >= {min_weight}")
     print(f"\nShowing top 20 cycles:\n")
