@@ -315,8 +315,8 @@ def create_combo_grid_image(combo_idx, size_pixels=60):
         elif cell_type == 2:
             grid[row, col] = COLOR_WALL
 
-    # Center cell is agent (green)
-    grid[1, 1] = COLOR_AGENT
+    # Center cell is agent (white background)
+    grid[1, 1] = COLOR_EMPTY
 
     # Create figure for this grid
     fig, ax = plt.subplots(figsize=(size_pixels/100, size_pixels/100), dpi=100)
@@ -327,10 +327,9 @@ def create_combo_grid_image(combo_idx, size_pixels=60):
         ax.axhline(i - 0.5, color='black', linewidth=1.5)
         ax.axvline(i - 0.5, color='black', linewidth=1.5)
 
-    # Add white triangle in center pointing up
-    triangle_x = [1 - 0.15, 1, 1 + 0.15, 1 - 0.15]
-    triangle_y = [1 + 0.2, 1 - 0.2, 1 + 0.2, 1 + 0.2]
-    ax.fill(triangle_x, triangle_y, color='white', zorder=10)
+    # Add black arrow in center pointing up (agent facing direction)
+    ax.annotate('', xy=(1, 0.7), xytext=(1, 1.3), 
+               arrowprops=dict(arrowstyle='->', color='black', lw=2))
 
     ax.set_xlim(-0.5, 2.5)
     ax.set_ylim(2.5, -0.5)
@@ -481,10 +480,9 @@ def plot_top_n_combos(G, output_file='combo_graph_top15.png', top_n=15):
 
     # Legend for cell types
     legend_elements = [
-        mpatches.Patch(facecolor='white', edgecolor='black', label='Empty'),
+        mpatches.Patch(facecolor='white', edgecolor='black', label='Empty / Agent'),
         mpatches.Patch(facecolor='orange', edgecolor='black', label='Box'),
         mpatches.Patch(facecolor='black', edgecolor='black', label='Wall'),
-        mpatches.Patch(facecolor='green', edgecolor='black', label='Agent (facing up)'),
     ]
     ax.legend(handles=legend_elements, loc='upper left', fontsize=12, framealpha=0.9)
 
