@@ -4,10 +4,17 @@ Visualize the combination transition graph from agent analysis.
 
 Usage:
     python visualize_combo_graph.py [analysis_prefix] [--top-n N]
+    python visualize_combo_graph.py [analysis_prefix] --pattern COMBO1-COMBO2-...
 
 Options:
     analysis_prefix: Prefix used when running analyze_agent.py (default: 'analysis')
     --top-n N: Number of top combinations to visualize (default: 15)
+    --pattern: Visualize a specific sequence of combinations (e.g., --pattern 45-67-89)
+
+Examples:
+    python visualize_combo_graph.py                           # Top 15 graph
+    python visualize_combo_graph.py --top-n 20                # Top 20 graph
+    python visualize_combo_graph.py --pattern 45-67-12-89     # Combo sequence
 """
 
 import json
@@ -16,9 +23,27 @@ import math
 import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import numpy as np
 
 # Valid combination indices (maps combo_idx back to raw 8-cell encoding)
 IIDX = [0,1,3,4,9,10,12,13,27,28,30,31,36,37,39,40,78,79,81,82,84,85,90,91,93,94,108,109,111,112,117,118,120,121,159,160,243,244,246,247,252,253,255,256,270,271,273,274,279,280,282,283,321,322,324,325,327,328,333,334,336,337,351,352,354,355,360,361,363,364,402,403,702,703,705,706,711,712,714,715,726,727,729,730,732,733,738,739,741,742,756,757,759,760,765,766,768,769,807,808,810,811,813,814,819,820,822,823,837,838,840,841,846,847,849,850,888,972,973,975,976,981,982,984,985,999,1000,1002,1003,1008,1009,1011,1012,1050,1051,1053,1054,1056,1057,1062,1063,1065,1066,1080,1081,1083,1084,1089,1090,1092,1131,1431,1432,1434,1435,1440,1443,1455,2187,2188,2190,2191,2196,2197,2199,2200,2214,2215,2217,2218,2223,2224,2226,2227,2265,2266,2268,2269,2271,2272,2277,2278,2280,2281,2295,2296,2298,2299,2304,2305,2307,2308,2346,2347,2430,2431,2433,2434,2439,2440,2442,2443,2457,2458,2460,2461,2466,2467,2469,2470,2508,2509,2511,2512,2514,2515,2520,2521,2523,2524,2538,2539,2541,2542,2547,2548,2550,2589,2590,2889,2890,2892,2893,2898,2899,2901,2902,2913,2914,2916,2917,2919,2920,2925,2926,2928,2929,2943,2944,2946,2947,2952,2953,2955,2956,2994,2995,2997,2998,3000,3001,3006,3007,3009,3010,3024,3025,3027,3028,3033,3034,3036,3075,3159,3160,3162,3163,3168,3169,3171,3172,3186,3187,3189,3190,3195,3196,3198,3237,3238,3240,3241,3243,3244,3249,3250,3252,3267,3268,3270,3276,3318,3618,3619,3621,3622,3627,3630,3642,4382,4391,4409,4418,4454,4463,4472,4490,4499,4535,4625,4634,4652,4661,4697,4706,4715,4733,4742,4778,5111,5120,5138,5147,5183,5192,5219,5354,5363,5381,5390,5426,5435,5462,6318,6319,6321,6322,6326,6327,6328,6330,6331,6335,6345,6346,6348,6349,6353,6354,6355,6357,6358,6362,6399,6400,6402,6403,6407,6408,6411,6426,6427,6429,6430,6434,6435,6438,6534,6535,6537,6538,6543,6546]
+
+# 3x3 grid mapping: position index -> (row, col) in 3x3 grid
+# Scan order: 0=F, 1=FR, 2=R, 3=BR, 4=B, 5=BL, 6=L, 7=FL
+# Grid layout (agent facing up):
+#   [FL][F ][FR]     [7][0][1]
+#   [L ][A ][R ]  =  [6][X][2]
+#   [BL][B ][BR]     [5][4][3]
+GRID_POS = {
+    0: (0, 1),  # Front -> top middle
+    1: (0, 2),  # Front-Right -> top right
+    2: (1, 2),  # Right -> middle right
+    3: (2, 2),  # Back-Right -> bottom right
+    4: (2, 1),  # Back -> bottom middle
+    5: (2, 0),  # Back-Left -> bottom left
+    6: (1, 0),  # Left -> middle left
+    7: (0, 0),  # Front-Left -> top left
+}
 
 
 def decode_combination(combo_idx):
@@ -77,6 +102,107 @@ def classify_combo_action_pattern(combo_stats):
         return 'forward'
     else:
         return 'turn'
+
+
+def plot_combo_sequence(combo_ids, combo_stats, output_file='combo_sequence.png', title=None):
+    """
+    Visualize a specific sequence of combinations (a behavioral pattern).
+    Shows each combination in order as a 3x3 grid with the agent's perception.
+
+    combo_ids: list of combination IDs in the pattern, e.g., [45, 67, 12, 89]
+    """
+    n_combos = len(combo_ids)
+
+    # Create figure - horizontal layout for sequence
+    fig, axes = plt.subplots(1, n_combos, figsize=(2.8 * n_combos, 4))
+    if n_combos == 1:
+        axes = [axes]
+
+    # Colors for cells
+    COLOR_EMPTY = np.array([1.0, 1.0, 1.0])      # White
+    COLOR_BOX = np.array([0.9, 0.4, 0.1])        # Orange
+    COLOR_WALL = np.array([0.2, 0.2, 0.2])       # Dark gray/black
+
+    for idx, combo_id in enumerate(combo_ids):
+        ax = axes[idx]
+
+        # Decode combination to get exact cell values
+        cells = decode_combination(combo_id)
+
+        # Create 3x3 image
+        img = np.zeros((3, 3, 3))
+
+        # Fill in the 8 surrounding cells
+        for pos in range(8):
+            row, col = GRID_POS[pos]
+            cell_type = cells[pos]
+
+            if cell_type == 0:
+                img[row, col] = COLOR_EMPTY
+            elif cell_type == 1:
+                img[row, col] = COLOR_BOX
+            elif cell_type == 2:
+                img[row, col] = COLOR_WALL
+
+        # Center cell is agent (white background)
+        img[1, 1] = COLOR_EMPTY
+
+        # Plot
+        ax.imshow(img, interpolation='nearest')
+
+        # Add grid lines
+        for i in range(4):
+            ax.axhline(i - 0.5, color='black', linewidth=1)
+            ax.axvline(i - 0.5, color='black', linewidth=1)
+
+        # Arrow in center cell pointing up (agent facing direction)
+        ax.annotate('', xy=(1, 0.7), xytext=(1, 1.3),
+                   arrowprops=dict(arrowstyle='->', color='black', lw=2))
+
+        # Get stats for this combination
+        stats = combo_stats.get(str(combo_id), {})
+        visit_count = stats.get('visit_count', 0)
+        action_pattern = classify_combo_action_pattern(stats)
+
+        # Title colors based on action
+        action_colors = {
+            'push': '#2ecc71',     # Green
+            'forward': '#3498db',  # Blue
+            'turn': '#f1c40f',     # Yellow
+            'none': '#95a5a6'      # Gray
+        }
+        title_color = action_colors.get(action_pattern, '#95a5a6')
+
+        # Title with step number, combo ID, and action
+        ax.set_title(f'Step {idx + 1}: Combo {combo_id}\n{action_pattern.upper()}',
+                    fontsize=10, fontweight='bold', color=title_color)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlim(-0.5, 2.5)
+        ax.set_ylim(2.5, -0.5)
+
+    # Legend
+    legend_elements = [
+        mpatches.Patch(facecolor=COLOR_EMPTY, edgecolor='black', label='Empty'),
+        mpatches.Patch(facecolor=COLOR_BOX, edgecolor='black', label='Box'),
+        mpatches.Patch(facecolor=COLOR_WALL, edgecolor='black', label='Wall'),
+    ]
+    fig.legend(handles=legend_elements, loc='lower center', ncol=3,
+              fontsize=10, framealpha=0.9, bbox_to_anchor=(0.5, 0.01))
+
+    # Title
+    combo_str = '-'.join(map(str, combo_ids))
+    if title:
+        fig.suptitle(title, fontsize=13, fontweight='bold', y=0.98)
+    else:
+        fig.suptitle(f'Combination Sequence: {combo_str}\n(Arrow = agent facing up)',
+                    fontsize=12, fontweight='bold', y=0.98)
+
+    plt.tight_layout(rect=[0, 0.08, 1, 0.92])
+    plt.savefig(output_file, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"Saved combination sequence visualization to {output_file}")
 
 
 def load_combo_graph_data(prefix='analysis'):
@@ -381,12 +507,17 @@ def print_graph_stats(G):
 if __name__ == '__main__':
     prefix = 'analysis'
     top_n = 15
+    pattern = None
 
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]
         if arg == '--top-n' and i + 1 < len(sys.argv):
             top_n = int(sys.argv[i + 1])
+            i += 2
+        elif arg == '--pattern' and i + 1 < len(sys.argv):
+            # Parse pattern like "45-67-12-89"
+            pattern = [int(x) for x in sys.argv[i + 1].split('-')]
             i += 2
         elif arg == '--help':
             print(__doc__)
@@ -397,9 +528,19 @@ if __name__ == '__main__':
         else:
             i += 1
 
-    print(f"Loading combination graph data from {prefix}_*.json files...")
+    print(f"Loading combination data from {prefix}_*.json files...")
     graph_data, combo_stats = load_combo_graph_data(prefix)
 
+    # If pattern specified, just visualize that pattern
+    if pattern:
+        pattern_str = '-'.join(map(str, pattern))
+        output_file = f'{prefix}_combo_pattern_{pattern_str}.png'
+        print(f"Visualizing combination sequence: {pattern_str}")
+        plot_combo_sequence(pattern, combo_stats, output_file)
+        print("Done!")
+        sys.exit(0)
+
+    # Otherwise, create the graph visualization
     print("Building graph...")
     G = create_networkx_graph(graph_data, combo_stats)
 
@@ -410,3 +551,4 @@ if __name__ == '__main__':
     plot_top_n_combos(G, output_file, top_n=top_n)
 
     print("\nDone!")
+    print(f"\nTip: Use --pattern COMBO1-COMBO2-... to visualize a specific combination sequence")

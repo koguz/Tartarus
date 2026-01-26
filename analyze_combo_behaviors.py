@@ -356,7 +356,7 @@ def analyze_combo_behaviors(prefix='analysis', min_weight=100, max_path_length=1
     print("-" * 75)
 
     for cycle, min_edge_weight in cycles[:20]:
-        cycle_str = ' -> '.join(map(str, cycle)) + f" -> {cycle[0]}"
+        cycle_str = '-'.join(map(str, cycle)) + f"-{cycle[0]}"
         if len(cycle_str) > 48:
             cycle_str = cycle_str[:45] + "..."
         print(f"{cycle_str:<50} {len(cycle):<8} {min_edge_weight:<12,}")
@@ -368,7 +368,7 @@ def analyze_combo_behaviors(prefix='analysis', min_weight=100, max_path_length=1
         print("=" * 70)
 
         for i, (cycle, min_edge_weight) in enumerate(cycles[:5]):
-            print(f"\nCycle {i+1}: {' -> '.join(map(str, cycle))} -> {cycle[0]}")
+            print(f"\nCycle {i+1}: {'-'.join(map(str, cycle))}-{cycle[0]}")
             print(f"Length: {len(cycle)}, Min edge weight: {min_edge_weight:,}")
             print("\nPerceptions in cycle:")
             for combo in cycle:
@@ -574,7 +574,7 @@ def query_combination(combo_id, prefix='analysis'):
     relevant_cycles = [c for c, w in cycles if combo_id in c]
     if relevant_cycles:
         for i, cycle in enumerate(relevant_cycles[:5]):
-            cycle_str = ' -> '.join(map(str, cycle)) + f" -> {cycle[0]}"
+            cycle_str = '-'.join(map(str, cycle)) + f"-{cycle[0]}"
             print(f"  {i+1}. {cycle_str}")
     else:
         print("  None found")
