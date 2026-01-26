@@ -176,12 +176,18 @@ def find_frequent_paths(forward_adj, min_weight, max_length):
     return paths
 
 
-def find_cycles(forward_adj, min_weight, max_length=10):
-    """Find cycles (loops) in the combination graph."""
+def find_cycles(forward_adj, min_weight, max_length=10, allow_repeats=True):
+    """
+    Find cycles (loops) in the combination graph.
+
+    If allow_repeats=True, combinations can appear multiple times in a path,
+    which captures behaviors like repeated pushing in the same perception.
+    """
     cycles = []
+    seen_cycles = set()  # To avoid duplicate cycles
 
     def dfs_cycle(path, weights):
-        """DFS to find cycles."""
+        """DFS to find cycles, allowing repeated nodes."""
         if len(path) > max_length:
             return
 
@@ -195,12 +201,25 @@ def find_cycles(forward_adj, min_weight, max_length=10):
 
             # Found a cycle back to start
             if next_combo == path[0] and len(path) >= 2:
-                cycles.append((path, min(weights + [weight])))
-            # Continue exploring (avoid revisiting except to close cycle)
-            elif next_combo not in path[1:]:
-                dfs_cycle(path + [next_combo], weights + [weight])
+                cycle_tuple = tuple(path)
+                if cycle_tuple not in seen_cycles:
+                    cycles.append((path, min(weights + [weight])))
+                    seen_cycles.add(cycle_tuple)
+            # Continue exploring
+            elif allow_repeats:
+                # Allow repeats but limit to prevent infinite loops
+                # Only revisit if we haven't been there too many times
+                if path.count(next_combo) < 5:  # Max 5 repetitions of same combo
+                    dfs_cycle(path + [next_combo], weights + [weight])
+            else:
+                # Original behavior: no repeats except to close cycle
+                if next_combo not in path[1:]:
+                    dfs_cycle(path + [next_combo], weights + [weight])
 
     print(f"  Finding cycles with min edge weight {min_weight}...")
+    if allow_repeats:
+        print(f"  Allowing repeated combinations in paths (up to 5 repetitions)")
+
     # Start from all nodes
     for start_combo in forward_adj.keys():
         dfs_cycle([start_combo], [])
