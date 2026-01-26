@@ -367,7 +367,7 @@ def analyze_combo_behaviors(prefix='analysis', min_weight=100, max_path_length=1
     print("BEHAVIORAL LOOPS (cycles in perception space)")
     print("=" * 70)
 
-    cycles = find_cycles(forward_adj, min_weight=min_weight, max_length=8)
+    cycles = find_cycles(forward_adj, min_weight=min_weight, max_length=8, allow_repeats=False)
     cycles.sort(key=lambda x: x[1], reverse=True)  # Sort by minimum edge weight
 
     # Save cycles to CSV file
@@ -600,7 +600,7 @@ def query_combination(combo_id, prefix='analysis'):
 
     # Check if part of cycles
     print(f"\nCycles containing this combination:")
-    cycles = find_cycles(forward_adj, min_weight=50, max_length=8)
+    cycles = find_cycles(forward_adj, min_weight=50, max_length=8, allow_repeats=False)
     relevant_cycles = [c for c, w in cycles if combo_id in c]
     if relevant_cycles:
         for i, cycle in enumerate(relevant_cycles[:5]):

@@ -23,6 +23,7 @@ import math
 import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 import numpy as np
 
 # Valid combination indices (maps combo_idx back to raw 8-cell encoding)
@@ -159,23 +160,9 @@ def plot_combo_sequence(combo_ids, combo_stats, output_file='combo_sequence.png'
         ax.annotate('', xy=(1, 0.7), xytext=(1, 1.3),
                    arrowprops=dict(arrowstyle='->', color='black', lw=2))
 
-        # Get stats for this combination
-        stats = combo_stats.get(str(combo_id), {})
-        visit_count = stats.get('visit_count', 0)
-        action_pattern = classify_combo_action_pattern(stats)
-
-        # Title colors based on action
-        action_colors = {
-            'push': '#2ecc71',     # Green
-            'forward': '#3498db',  # Blue
-            'turn': '#f1c40f',     # Yellow
-            'none': '#95a5a6'      # Gray
-        }
-        title_color = action_colors.get(action_pattern, '#95a5a6')
-
-        # Title with step number, combo ID, and action
-        ax.set_title(f'Step {idx + 1}: Combo {combo_id}\n{action_pattern.upper()}',
-                    fontsize=10, fontweight='bold', color=title_color)
+        # Title with step number and combo ID only
+        ax.set_title(f'Step {idx + 1}: Combo {combo_id}',
+                    fontsize=10, fontweight='bold', color='black')
 
         ax.set_xticks([])
         ax.set_yticks([])
@@ -298,6 +285,74 @@ def separate_overlapping_nodes(pos, min_distance=0.8):
     return pos
 
 
+def create_combo_grid_image(combo_idx, size_pixels=60):
+    """
+    Create a small 3x3 grid image showing the combination perception.
+
+    Returns a numpy array (image) that can be used as a node in the graph.
+    """
+    # Colors
+    COLOR_EMPTY = np.array([1.0, 1.0, 1.0])      # White
+    COLOR_BOX = np.array([0.9, 0.4, 0.1])        # Orange
+    COLOR_WALL = np.array([0.2, 0.2, 0.2])       # Dark gray/black
+    COLOR_AGENT = np.array([0.3, 0.8, 0.3])      # Green for agent
+
+    # Decode combination
+    cells = decode_combination(combo_idx)
+
+    # Create 3x3 grid image
+    grid = np.zeros((3, 3, 3))
+
+    # Fill in the 8 surrounding cells
+    for pos in range(8):
+        row, col = GRID_POS[pos]
+        cell_type = cells[pos]
+
+        if cell_type == 0:
+            grid[row, col] = COLOR_EMPTY
+        elif cell_type == 1:
+            grid[row, col] = COLOR_BOX
+        elif cell_type == 2:
+            grid[row, col] = COLOR_WALL
+
+    # Center cell is agent (green)
+    grid[1, 1] = COLOR_AGENT
+
+    # Create figure for this grid
+    fig, ax = plt.subplots(figsize=(size_pixels/100, size_pixels/100), dpi=100)
+    ax.imshow(grid, interpolation='nearest')
+
+    # Add grid lines
+    for i in range(4):
+        ax.axhline(i - 0.5, color='black', linewidth=1.5)
+        ax.axvline(i - 0.5, color='black', linewidth=1.5)
+
+    # Add white triangle in center pointing up
+    triangle_x = [1 - 0.15, 1, 1 + 0.15, 1 - 0.15]
+    triangle_y = [1 + 0.2, 1 - 0.2, 1 + 0.2, 1 + 0.2]
+    ax.fill(triangle_x, triangle_y, color='white', zorder=10)
+
+    ax.set_xlim(-0.5, 2.5)
+    ax.set_ylim(2.5, -0.5)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_aspect('equal')
+
+    # Remove margins
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
+    # Convert to image array
+    fig.canvas.draw()
+    # Use buffer_rgba() instead of tostring_rgb() for newer matplotlib versions
+    buf = fig.canvas.buffer_rgba()
+    img_array = np.asarray(buf)
+    # Convert RGBA to RGB
+    img_array = img_array[:, :, :3]
+    plt.close(fig)
+
+    return img_array
+
+
 def radial_layout(G, center_metric='visits', min_node_distance=1.0):
     """Create a radial layout with high-centrality nodes in the center."""
     if center_metric == 'visits':
@@ -352,9 +407,9 @@ def radial_layout(G, center_metric='visits', min_node_distance=1.0):
 def plot_top_n_combos(G, output_file='combo_graph_top15.png', top_n=15):
     """
     Create a clean graph showing only the top N most visited combinations
-    with all transitions between them.
+    with all transitions between them. Uses 3x3 grid images as nodes.
     """
-    fig, ax = plt.subplots(figsize=(16, 16))
+    fig, ax = plt.subplots(figsize=(20, 20))
 
     # Get top N combinations by visit count
     all_nodes = [(n, G.nodes[n].get('visit_count', 0)) for n in G.nodes()]
@@ -366,26 +421,11 @@ def plot_top_n_combos(G, output_file='combo_graph_top15.png', top_n=15):
 
     print(f"Top {top_n} graph: {len(H.nodes())} combinations and {len(H.edges())} transitions")
 
-    # Use radial layout - most visited in center
-    pos, centrality = radial_layout(H, center_metric='visits', min_node_distance=2.0)
+    # Use radial layout - most visited in center, larger spacing for grid images
+    pos, centrality = radial_layout(H, center_metric='visits', min_node_distance=3.5)
 
-    # Node sizes based on visit count
-    visit_counts = [H.nodes[n].get('visit_count', 1) for n in H.nodes()]
-    max_visits = max(visit_counts) if visit_counts else 1
-    node_sizes = [500 + 4000 * (v / max_visits) for v in visit_counts]
-
-    # Create a dict mapping node to its size for edge shrinking
-    node_size_dict = {n: sz for n, sz in zip(H.nodes(), node_sizes)}
-
-    # Node colors based on dominant action
-    action_colors = {
-        'push': '#2ecc71',     # Green
-        'forward': '#3498db',  # Blue
-        'turn': '#f1c40f',     # Yellow
-        'none': '#95a5a6'      # Gray
-    }
-    node_colors = [action_colors.get(H.nodes[n].get('dominant_action', 'none'), '#95a5a6')
-                   for n in H.nodes()]
+    # All grids the same size
+    zoom_factors = {node: 0.6 for node in H.nodes()}
 
     # Edge widths based on weight
     edge_weights = [H.edges[e].get('weight', 1) for e in H.edges()]
@@ -397,12 +437,12 @@ def plot_top_n_combos(G, output_file='combo_graph_top15.png', top_n=15):
         edge_widths = []
         edge_alphas = []
 
-    # Draw edges - black arrows that stop at node borders
-    for (u, v), width, alpha in zip(H.edges(), edge_widths, edge_alphas):
-        # Calculate shrink values: node_size is area in points², radius = sqrt(size/pi)
-        radius_a = math.sqrt(node_size_dict[u] / math.pi)
-        radius_b = math.sqrt(node_size_dict[v] / math.pi)
+    # Draw edges - black arrows
+    # Calculate shrink to stop arrows just outside the grid images
+    grid_radius = 0.6 * 60 / 72  # zoom * pixels / dpi = data units
+    shrink_points = grid_radius * 72 + 5  # Add 5 points padding
 
+    for (u, v), width, alpha in zip(H.edges(), edge_widths, edge_alphas):
         ax.annotate("",
                     xy=pos[v], xycoords='data',
                     xytext=pos[u], textcoords='data',
@@ -411,31 +451,45 @@ def plot_top_n_combos(G, output_file='combo_graph_top15.png', top_n=15):
                                     alpha=alpha,
                                     connectionstyle="arc3,rad=0.15",
                                     lw=width,
-                                    shrinkA=radius_a,
-                                    shrinkB=radius_b,
+                                    shrinkA=shrink_points,
+                                    shrinkB=shrink_points,
                                     mutation_scale=15))
 
-    # Draw nodes
-    nx.draw_networkx_nodes(H, pos, ax=ax,
-                           node_size=node_sizes,
-                           node_color=node_colors,
-                           alpha=0.9,
-                           edgecolors='black',
-                           linewidths=2)
+    # Create and place grid images as nodes
+    print("  Creating combination grid images...")
+    for node in H.nodes():
+        # Create grid image
+        img = create_combo_grid_image(node, size_pixels=60)
 
-    # Draw labels
-    nx.draw_networkx_labels(H, pos, ax=ax, font_size=11, font_weight='bold')
+        # Create OffsetImage with zoom based on visit count
+        imagebox = OffsetImage(img, zoom=zoom_factors[node])
 
-    # Legend
+        # Place image at node position
+        ab = AnnotationBbox(imagebox, pos[node],
+                           frameon=True,
+                           pad=0.1,
+                           bboxprops=dict(edgecolor='black', linewidth=2, facecolor='white'))
+        ax.add_artist(ab)
+
+    # Draw labels below each grid
+    for node in H.nodes():
+        x, y = pos[node]
+        ax.text(x, y - 0.6, str(node),
+               ha='center', va='top',
+               fontsize=10, fontweight='bold',
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='black', linewidth=1))
+
+    # Legend for cell types
     legend_elements = [
-        mpatches.Patch(color='#2ecc71', label='Push'),
-        mpatches.Patch(color='#3498db', label='Forward'),
-        mpatches.Patch(color='#f1c40f', label='Turn'),
+        mpatches.Patch(facecolor='white', edgecolor='black', label='Empty'),
+        mpatches.Patch(facecolor='orange', edgecolor='black', label='Box'),
+        mpatches.Patch(facecolor='black', edgecolor='black', label='Wall'),
+        mpatches.Patch(facecolor='green', edgecolor='black', label='Agent (facing up)'),
     ]
     ax.legend(handles=legend_elements, loc='upper left', fontsize=12, framealpha=0.9)
 
     ax.set_title(f'Top {top_n} Most Visited Combinations\n'
-                f'Node color = dominant action, Node size = visit count',
+                f'Arrow thickness = transition weight',
                 fontsize=14, fontweight='bold')
     ax.set_aspect('equal')
     ax.axis('off')
