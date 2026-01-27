@@ -86,6 +86,60 @@ def decode_tactic(tactic):
     return ", ".join(parts)
 
 
+def tactic_to_number(tactic):
+    """
+    Convert tactic string to number (0-63).
+
+    Encoding (6 bits):
+      Bit 5 (32): B=1, C=0 (box in front)
+      Bit 4 (16): F=1, -=0 (front area boxes)
+      Bit 3 (8):  S=1, -=0 (side boxes)
+      Bit 2 (4):  K=1, -=0 (back boxes)
+      Bit 1 (2):  W=1, O=0 (wall)
+      Bit 0 (1):  T=1, F=0 (turn action)
+
+    Example: B---W_F = 100010 = 34, C-S-W_F = 001010 = 10
+    """
+    if len(tactic) < 7 or tactic[5] != '_':
+        return -1
+
+    n = 0
+    if tactic[0] == 'B': n += 32
+    if tactic[1] == 'F': n += 16
+    if tactic[2] == 'S': n += 8
+    if tactic[3] == 'K': n += 4
+    if tactic[4] == 'W': n += 2
+    if tactic[6] == 'T': n += 1
+
+    return n
+
+
+def number_to_tactic(n):
+    """Convert number (0-63) back to tactic string."""
+    if n < 0 or n > 63:
+        return "invalid"
+
+    p1 = 'B' if (n & 32) else 'C'
+    p2 = 'F' if (n & 16) else '-'
+    p3 = 'S' if (n & 8) else '-'
+    p4 = 'K' if (n & 4) else '-'
+    p5 = 'W' if (n & 2) else 'O'
+    p6 = 'T' if (n & 1) else 'F'
+
+    return f"{p1}{p2}{p3}{p4}{p5}_{p6}"
+
+
+def pattern_to_numbers(pattern):
+    """Convert a pattern (list of tactics) to a list of numbers."""
+    return [tactic_to_number(t) for t in pattern]
+
+
+def pattern_numbers_str(pattern):
+    """Get a compact numeric representation of a pattern."""
+    nums = pattern_to_numbers(pattern)
+    return '-'.join(str(n) for n in nums)
+
+
 def extract_ngrams(sequence, n):
     """Extract all n-grams from a sequence."""
     ngrams = []
@@ -199,75 +253,45 @@ def save_all_patterns_to_txt(prefix, results, tactic_stats):
     output_file = f'{prefix}_tactic_patterns_all.txt'
 
     with open(output_file, 'w') as f:
-        f.write("="*90 + "\n")
-        f.write("COMPLETE TACTIC PATTERN ANALYSIS (ALL PATTERNS)\n")
-        f.write("="*90 + "\n\n")
-
-        f.write("Tactic naming: {B/C}{F/-}{S/-}{K/-}{W/O}_{F/T}\n")
-        f.write("  B=box in front, C=clear, F=front area boxes, S=side boxes, K=back boxes\n")
-        f.write("  W=wall, O=open, _F=forward, _T=turn\n\n")
+        f.write("TACTIC PATTERN ANALYSIS\n")
+        f.write("=======================\n\n")
+        f.write("Numeric encoding (0-63): B=32, F=16, S=8, K=4, W=2, T=1\n")
+        f.write("Example: B---W_F = 34, C-S-W_F = 10\n\n")
+        f.write("Format: pattern, sequences\n\n")
 
         # Frequent n-grams
-        f.write("="*90 + "\n")
-        f.write("ALL FREQUENT TACTIC SEQUENCES (n-grams)\n")
-        f.write("="*90 + "\n\n")
-
         for n, patterns in sorted(results['frequent_ngrams'].items()):
             if not patterns:
                 continue
-            f.write(f"\n{'='*90}\n")
-            f.write(f"{n}-grams (sequences of {n} tactics)\n")
-            f.write(f"{'='*90}\n")
-            f.write(f"Total patterns: {len(patterns)}\n\n")
-            f.write(f"{'Pattern':<70} {'Sequences':>10} {'Behavior':<20}\n")
-            f.write("-" * 105 + "\n")
+            f.write(f"\n{n}-GRAMS (by sequence count)\n")
+            f.write("-" * 40 + "\n")
 
             for pattern, count in patterns:
-                pattern_str = ' → '.join(pattern)
-                if len(pattern_str) > 68:
-                    pattern_str = pattern_str[:65] + "..."
-                behavior = get_pattern_description(pattern)
-                f.write(f"{pattern_str:<70} {count:>10,} {behavior:<20}\n")
+                numeric_str = pattern_numbers_str(pattern)
+                f.write(f"{numeric_str}, {count}\n")
 
         # Total occurrences
-        f.write("\n" + "="*90 + "\n")
-        f.write("ALL TOTAL PATTERN OCCURRENCES (counting all instances)\n")
-        f.write("="*90 + "\n\n")
+        f.write("\n\nTOTAL OCCURRENCES (pattern, total, sequences, avg)\n")
+        f.write("-" * 50 + "\n")
 
         for n, patterns in sorted(results['total_occurrences'].items()):
             if not patterns:
                 continue
-            f.write(f"\n{'='*90}\n")
-            f.write(f"{n}-grams (total occurrences)\n")
-            f.write(f"{'='*90}\n")
-            f.write(f"Total patterns: {len(patterns)}\n\n")
-            f.write(f"{'Pattern':<55} {'Total':>10} {'Sequences':>10} {'Avg/Seq':>8} {'Behavior':<15}\n")
-            f.write("-" * 105 + "\n")
+            f.write(f"\n{n}-GRAMS\n")
 
             for p in patterns:
-                pattern_str = ' → '.join(p['pattern'])
-                if len(pattern_str) > 53:
-                    pattern_str = pattern_str[:50] + "..."
-                behavior = get_pattern_description(tuple(p['pattern']))
-                f.write(f"{pattern_str:<55} {p['total']:>10,} {p['sequences']:>10,} {p['avg_per_seq']:>8.2f} {behavior:<15}\n")
+                numeric_str = pattern_numbers_str(tuple(p['pattern']))
+                f.write(f"{numeric_str}, {p['total']}, {p['sequences']}, {p['avg_per_seq']:.2f}\n")
 
         # Repeating patterns
-        f.write("\n" + "="*90 + "\n")
-        f.write("ALL REPEATING PATTERNS (loops within sequences)\n")
-        f.write("="*90 + "\n\n")
+        f.write("\n\nREPEATING PATTERNS (pattern, sequences, total_repeats)\n")
+        f.write("-" * 50 + "\n")
 
         repeating = results['repeating_patterns']
         if repeating:
-            f.write(f"Total repeating patterns: {len(repeating)}\n\n")
-            f.write(f"{'Pattern':<55} {'Sequences':>10} {'Total Reps':>12} {'Behavior':<15}\n")
-            f.write("-" * 95 + "\n")
-
             for p in repeating:
-                pattern_str = ' → '.join(p['pattern'])
-                if len(pattern_str) > 53:
-                    pattern_str = pattern_str[:50] + "..."
-                behavior = get_pattern_description(tuple(p['pattern']))
-                f.write(f"{pattern_str:<55} {p['sequences']:>10,} {p['total_repeats']:>12,} {behavior:<15}\n")
+                numeric_str = pattern_numbers_str(tuple(p['pattern']))
+                f.write(f"{numeric_str}, {p['sequences']}, {p['total_repeats']}\n")
         else:
             f.write("No repeating patterns found\n")
 
@@ -279,94 +303,54 @@ def save_patterns_to_txt(prefix, results, tactic_stats):
     output_file = f'{prefix}_tactic_patterns.txt'
 
     with open(output_file, 'w') as f:
-        f.write("="*90 + "\n")
-        f.write("TACTIC PATTERN ANALYSIS\n")
-        f.write("="*90 + "\n\n")
+        f.write("TACTIC PATTERN ANALYSIS (SUMMARY)\n")
+        f.write("=================================\n\n")
+        f.write("Numeric encoding (0-63): B=32, F=16, S=8, K=4, W=2, T=1\n")
+        f.write("Example: B---W_F = 34, C-S-W_F = 10\n\n")
+        f.write("Format: pattern, sequences\n\n")
 
-        f.write("Tactic naming: {B/C}{F/-}{S/-}{K/-}{W/O}_{F/T}\n")
-        f.write("  B=box in front, C=clear, F=front area boxes, S=side boxes, K=back boxes\n")
-        f.write("  W=wall, O=open, _F=forward, _T=turn\n\n")
-
-        # Frequent n-grams
-        f.write("="*90 + "\n")
-        f.write("FREQUENT TACTIC SEQUENCES (n-grams)\n")
-        f.write("="*90 + "\n")
-
+        # Frequent n-grams - top 30 per length
         for n, patterns in sorted(results['frequent_ngrams'].items()):
             if not patterns:
                 continue
-            f.write(f"\n--- {n}-grams (sequences of {n} tactics) ---\n")
-            f.write(f"Found {len(patterns)} patterns appearing in 500+ sequences\n\n")
-            f.write(f"{'Pattern':<70} {'Sequences':>10}\n")
-            f.write("-" * 85 + "\n")
+            f.write(f"\n{n}-GRAMS (top 30)\n")
+            f.write("-" * 40 + "\n")
 
-            for pattern, count in patterns[:20]:
-                pattern_str = ' → '.join(pattern)
-                if len(pattern_str) > 68:
-                    pattern_str = pattern_str[:65] + "..."
-                f.write(f"{pattern_str:<70} {count:>10,}\n")
+            for pattern, count in patterns[:30]:
+                numeric_str = pattern_numbers_str(pattern)
+                f.write(f"{numeric_str}, {count}\n")
 
-        # Total occurrences
-        f.write("\n" + "="*90 + "\n")
-        f.write("TOTAL PATTERN OCCURRENCES (counting all instances)\n")
-        f.write("="*90 + "\n")
-
-        for n, patterns in sorted(results['total_occurrences'].items()):
-            if not patterns:
-                continue
-            f.write(f"\n--- {n}-grams (total occurrences) ---\n")
-            f.write(f"Found {len(patterns)} patterns with 5000+ total occurrences\n\n")
-            f.write(f"{'Pattern':<55} {'Total':>10} {'Sequences':>10} {'Avg/Seq':>8}\n")
-            f.write("-" * 90 + "\n")
-
-            for p in patterns[:20]:
-                pattern_str = ' → '.join(p['pattern'])
-                if len(pattern_str) > 53:
-                    pattern_str = pattern_str[:50] + "..."
-                f.write(f"{pattern_str:<55} {p['total']:>10,} {p['sequences']:>10,} {p['avg_per_seq']:>8.2f}\n")
-
-        # Repeating patterns
-        f.write("\n" + "="*90 + "\n")
-        f.write("REPEATING PATTERNS (loops within sequences)\n")
-        f.write("="*90 + "\n\n")
+        # Repeating patterns - top 50
+        f.write("\n\nREPEATING PATTERNS (top 50)\n")
+        f.write("-" * 40 + "\n")
+        f.write("pattern, sequences, total_repeats\n\n")
 
         repeating = results['repeating_patterns']
         if repeating:
-            f.write(f"Found {len(repeating)} repeating patterns in 500+ sequences\n\n")
-            f.write(f"{'Pattern':<55} {'Sequences':>10} {'Total Reps':>12}\n")
-            f.write("-" * 80 + "\n")
-
-            for p in repeating[:30]:
-                pattern_str = ' → '.join(p['pattern'])
-                if len(pattern_str) > 53:
-                    pattern_str = pattern_str[:50] + "..."
-                f.write(f"{pattern_str:<55} {p['sequences']:>10,} {p['total_repeats']:>12,}\n")
+            for p in repeating[:50]:
+                numeric_str = pattern_numbers_str(tuple(p['pattern']))
+                f.write(f"{numeric_str}, {p['sequences']}, {p['total_repeats']}\n")
         else:
-            f.write("No significant repeating patterns found\n")
+            f.write("No repeating patterns found\n")
 
-        # Pattern details
-        f.write("\n" + "="*90 + "\n")
-        f.write("DETAILED PATTERN DESCRIPTIONS\n")
-        f.write("="*90 + "\n")
-        f.write("Top 10 most frequent patterns with full descriptions:\n\n")
+        # Pattern details - top 10 with descriptions
+        f.write("\n\nTOP 10 PATTERNS WITH DESCRIPTIONS\n")
+        f.write("=" * 50 + "\n")
 
         top_patterns = []
-        for n in [3, 4, 5]:
+        for n in [3, 4, 5, 6]:
             if n in results['frequent_ngrams'] and results['frequent_ngrams'][n]:
-                top_patterns.extend([(p, c, n) for p, c in results['frequent_ngrams'][n][:5]])
+                top_patterns.extend([(p, c, n) for p, c in results['frequent_ngrams'][n][:3]])
 
         top_patterns.sort(key=lambda x: -x[1])
 
         for pattern, count, n in top_patterns[:10]:
-            f.write(f"\nPattern: {' → '.join(pattern)}\n")
-            f.write(f"  Length: {n}-gram\n")
-            f.write(f"  Appears in: {count:,} sequences\n")
-            f.write(f"  Behavior: {get_pattern_description(pattern)}\n")
-            f.write(f"  Steps:\n")
+            numeric_str = pattern_numbers_str(pattern)
+            f.write(f"\n{numeric_str} ({count} sequences)\n")
             for i, tactic in enumerate(pattern):
+                num = tactic_to_number(tactic)
                 desc = decode_tactic(tactic)
-                f.write(f"    {i+1}. [{tactic}] {desc}\n")
-            f.write("\n")
+                f.write(f"  {i+1}. #{num} {tactic}: {desc}\n")
 
     print(f"Saved human-readable results to {output_file}")
 
@@ -390,70 +374,52 @@ def analyze_patterns(prefix='analysis', min_length=3, max_length=15):
     print(f"Unique tactics observed: {len(all_tactics)}")
 
     # Find frequent n-grams
-    print("\n" + "="*70)
-    print("FREQUENT TACTIC SEQUENCES (n-grams)")
-    print("="*70)
+    print("\n" + "="*60)
+    print("FREQUENT TACTIC SEQUENCES (pattern, sequences)")
+    print("="*60)
 
-    for n in range(min_length, min(max_length + 1, 8)):  # Print up to 7-grams
-        print(f"\n--- {n}-grams (sequences of {n} tactics) ---")
+    for n in range(min_length, min(max_length + 1, 13)):  # Print up to 12-grams
+        print(f"\n{n}-grams:")
         frequent = find_frequent_ngrams(sequences, n, min_count=1000)
 
         if frequent:
-            print(f"Found {len(frequent)} patterns appearing in 1000+ sequences")
-            print(f"{'Pattern':<60} {'Sequences':>10}")
-            print("-" * 75)
-
-            for pattern, count in frequent[:10]:
-                pattern_str = ' → '.join(pattern)
-                if len(pattern_str) > 58:
-                    pattern_str = pattern_str[:55] + "..."
-                print(f"{pattern_str:<60} {count:>10,}")
+            for pattern, count in frequent[:8]:
+                numeric_str = pattern_numbers_str(pattern)
+                print(f"{numeric_str}, {count}")
         else:
-            print("No patterns found with sufficient frequency")
+            print("(none)")
 
     # Find n-grams with total occurrence counts
-    print("\n" + "="*70)
-    print("TOTAL PATTERN OCCURRENCES (counting all instances)")
-    print("="*70)
+    print("\n" + "="*60)
+    print("TOTAL OCCURRENCES (pattern, total, sequences, avg)")
+    print("="*60)
 
-    for n in range(min_length, min(max_length + 1, 6)):  # Print up to 5-grams
-        print(f"\n--- {n}-grams (total occurrences) ---")
+    for n in range(min_length, min(max_length + 1, 8)):  # Print up to 7-grams
+        print(f"\n{n}-grams:")
         frequent_total = find_frequent_ngrams_total(sequences, n, min_count=5000)
 
         if frequent_total:
-            print(f"Found {len(frequent_total)} patterns with 5000+ total occurrences")
-            print(f"{'Pattern':<50} {'Total':>10} {'Sequences':>10} {'Avg/Seq':>8}")
-            print("-" * 85)
-
-            for pattern, total_count, seq_count in frequent_total[:10]:
-                pattern_str = ' → '.join(pattern)
-                if len(pattern_str) > 48:
-                    pattern_str = pattern_str[:45] + "..."
+            for pattern, total_count, seq_count in frequent_total[:8]:
+                numeric_str = pattern_numbers_str(pattern)
                 avg_per_seq = total_count / seq_count if seq_count > 0 else 0
-                print(f"{pattern_str:<50} {total_count:>10,} {seq_count:>10,} {avg_per_seq:>8.2f}")
+                print(f"{numeric_str}, {total_count}, {seq_count}, {avg_per_seq:.2f}")
         else:
-            print("No patterns found with sufficient frequency")
+            print("(none)")
 
     # Find repeating patterns
-    print("\n" + "="*70)
-    print("REPEATING PATTERNS (loops within sequences)")
-    print("="*70)
+    print("\n" + "="*60)
+    print("REPEATING PATTERNS (pattern, sequences, total_repeats)")
+    print("="*60)
 
-    print("\nSearching for patterns that repeat consecutively...")
     repeating = find_all_repeating_patterns(sequences, min_length, max_length, min_occurrences=500)
 
     if repeating:
-        print(f"\nFound {len(repeating)} repeating patterns in 500+ sequences")
-        print(f"{'Pattern':<50} {'Sequences':>10} {'Total Reps':>12}")
-        print("-" * 75)
-
+        print(f"Found {len(repeating)} repeating patterns\n")
         for pattern, seq_count, total_repeats in repeating[:15]:
-            pattern_str = ' → '.join(pattern)
-            if len(pattern_str) > 48:
-                pattern_str = pattern_str[:45] + "..."
-            print(f"{pattern_str:<50} {seq_count:>10,} {total_repeats:>12,}")
+            numeric_str = pattern_numbers_str(pattern)
+            print(f"{numeric_str}, {seq_count}, {total_repeats}")
     else:
-        print("No significant repeating patterns found")
+        print("No repeating patterns found")
 
     # Save results to JSON
     results = {
@@ -482,23 +448,23 @@ def analyze_patterns(prefix='analysis', min_length=3, max_length=15):
     save_all_patterns_to_txt(prefix, results, tactic_stats)
 
     # Summary statistics
-    print("\n" + "="*70)
+    print("\n" + "="*60)
     print("SUMMARY")
-    print("="*70)
+    print("="*60)
 
     # Most common starting tactics
     start_tactics = Counter(seq[0] for seq in sequences)
-    print(f"\nMost common starting tactics:")
+    print(f"\nStarting tactics (tactic, count):")
     for tactic, count in start_tactics.most_common(5):
-        pct = 100 * count / len(sequences)
-        print(f"  {tactic}: {count:,} ({pct:.1f}%)")
+        num = tactic_to_number(tactic)
+        print(f"  {num}, {count}")
 
     # Most common ending tactics
     end_tactics = Counter(seq[-1] for seq in sequences)
-    print(f"\nMost common ending tactics (after 80 moves):")
+    print(f"\nEnding tactics (tactic, count):")
     for tactic, count in end_tactics.most_common(5):
-        pct = 100 * count / len(sequences)
-        print(f"  {tactic}: {count:,} ({pct:.1f}%)")
+        num = tactic_to_number(tactic)
+        print(f"  {num}, {count}")
 
     # Average unique tactics per sequence
     unique_per_seq = [len(set(seq)) for seq in sequences]
@@ -514,10 +480,7 @@ def analyze_patterns(prefix='analysis', min_length=3, max_length=15):
             if seq[i] == seq[i + 1]:
                 self_loops += 1
 
-    print(f"\nSelf-loop analysis (same tactic repeated):")
-    print(f"  Total transitions: {total_transitions:,}")
-    print(f"  Self-loops: {self_loops:,} ({100*self_loops/total_transitions:.2f}%)")
-    print(f"  Tactic changes: {total_transitions - self_loops:,} ({100*(total_transitions-self_loops)/total_transitions:.2f}%)")
+    print(f"\nSelf-loops: {self_loops:,} / {total_transitions:,} ({100*self_loops/total_transitions:.1f}%)")
 
     # Most common self-loop tactics
     self_loop_counts = Counter()
@@ -527,10 +490,10 @@ def analyze_patterns(prefix='analysis', min_length=3, max_length=15):
                 self_loop_counts[seq[i]] += 1
 
     if self_loop_counts:
-        print(f"\nMost common self-loop tactics (tactics that repeat consecutively):")
+        print(f"\nSelf-loop tactics (tactic, count):")
         for tactic, count in self_loop_counts.most_common(10):
-            desc = decode_tactic(tactic)
-            print(f"  {tactic}: {count:,} - {desc}")
+            num = tactic_to_number(tactic)
+            print(f"  {num}, {count}")
 
     return results
 
