@@ -105,6 +105,67 @@ def has_box_in_front(combo_idx):
     return (combo_raw % 3) == 1  # Position 0 is front
 
 
+def classify_tactic(combo_idx, action):
+    """
+    Classify a (combination, action) pair into one of 64 tactics.
+
+    Compact naming: {B/C}{F/-}{S/-}{K/-}{W/O}_{F/T}
+    - B = box in front, C = clear front
+    - F = boxes in front area (FL, FR), - = none
+    - S = boxes on sides (L, R), - = none
+    - K = boxes behind (BL, B, BR), - = none
+    - W = wall present, O = open (no wall)
+    - F = forward/push action, T = turn action
+
+    Example: "BF--W_F" = box in front, front area boxes, no side/back boxes, wall, forward
+
+    Agent's scan positions:
+        0=F, 1=FR, 2=R, 3=BR, 4=B, 5=BL, 6=L, 7=FL
+    """
+    if combo_idx >= len(IIDX):
+        return "invalid"
+
+    combo_raw = IIDX[combo_idx]
+    cells = decode_combination(combo_raw)
+
+    # Build the tactic string
+    # Position 1: Box in front?
+    p1 = "B" if cells[0] == 1 else "C"
+
+    # Position 2: Boxes in front area? (FL=7, FR=1)
+    p2 = "F" if (cells[7] == 1 or cells[1] == 1) else "-"
+
+    # Position 3: Boxes on sides? (L=6, R=2)
+    p3 = "S" if (cells[6] == 1 or cells[2] == 1) else "-"
+
+    # Position 4: Boxes behind? (BL=5, B=4, BR=3)
+    p4 = "K" if (cells[5] == 1 or cells[4] == 1 or cells[3] == 1) else "-"
+
+    # Position 5: Wall present anywhere?
+    p5 = "W" if any(c == 2 for c in cells) else "O"
+
+    # Position 6: Action
+    p6 = "F" if action in ("forward", "push") else "T"
+
+    return f"{p1}{p2}{p3}{p4}{p5}_{p6}"
+
+
+def get_all_tactic_names():
+    """Generate all 64 possible tactic names."""
+    tactics = []
+    for p1 in ["B", "C"]:
+        for p2 in ["F", "-"]:
+            for p3 in ["S", "-"]:
+                for p4 in ["K", "-"]:
+                    for p5 in ["W", "O"]:
+                        for p6 in ["F", "T"]:
+                            tactics.append(f"{p1}{p2}{p3}{p4}{p5}_{p6}")
+    return tactics
+
+
+TACTIC_NAMES = get_all_tactic_names()
+
+
 def load_agent(filepath, num_states=128):
     """Load agent from file. Returns (actions, next_states, initial_state)."""
     with open(filepath, 'r') as f:
@@ -293,6 +354,15 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
         'visit_count': 0
     } for c in range(C)}
 
+    # Tactic transition graph: tactic_transitions[from_tactic][to_tactic] = count
+    tactic_transitions = defaultdict(lambda: defaultdict(int))
+
+    # Per-tactic statistics
+    tactic_stats = {t: {'visit_count': 0} for t in TACTIC_NAMES}
+
+    # All tactic sequences (for tactic pattern analysis)
+    all_tactic_sequences = []
+
     # Run all configurations
     total_fitness = 0
     config_count = 0
@@ -360,6 +430,25 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
                     if i < len(step_details) - 1:
                         next_combo_idx = step_details[i + 1]['combo_idx']
                         combo_transitions[combo_idx][next_combo_idx] += 1
+
+                # Build tactic sequence and update tactic statistics
+                tactic_seq = []
+                for i in range(len(step_details)):
+                    detail = step_details[i]
+                    tactic = classify_tactic(detail['combo_idx'], detail['action_type'])
+                    tactic_seq.append(tactic)
+
+                    # Update per-tactic stats
+                    if tactic in tactic_stats:
+                        tactic_stats[tactic]['visit_count'] += 1
+
+                    # Track transition to next tactic (if there is a next step)
+                    if i < len(step_details) - 1:
+                        next_detail = step_details[i + 1]
+                        next_tactic = classify_tactic(next_detail['combo_idx'], next_detail['action_type'])
+                        tactic_transitions[tactic][next_tactic] += 1
+
+                all_tactic_sequences.append(tactic_seq)
 
         if (board_idx + 1) % 200 == 0:
             print(f"  Processed {board_idx + 1}/{len(boards)} boards ({config_count} configs)")
@@ -507,7 +596,45 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
         json.dump(combo_stats_output, f, indent=2)
     print(f"  Saved combination statistics to {output_prefix}_combo_stats.json")
 
-    # 6. Summary report
+    # 6. Tactic transition graph
+    tactic_edges = []
+    for from_tactic, targets in tactic_transitions.items():
+        for to_tactic, weight in targets.items():
+            tactic_edges.append({
+                'source': from_tactic,
+                'target': to_tactic,
+                'weight': weight
+            })
+
+    with open(f'{output_prefix}_tactic_transitions.json', 'w') as f:
+        json.dump({
+            'nodes': TACTIC_NAMES,
+            'edges': tactic_edges,
+            'num_tactics': len(TACTIC_NAMES),
+            'total_configs': config_count
+        }, f, indent=2)
+    print(f"  Saved tactic transition graph to {output_prefix}_tactic_transitions.json")
+
+    # 7. Per-tactic statistics
+    tactic_stats_output = {}
+    for tactic in TACTIC_NAMES:
+        stats = tactic_stats[tactic]
+        if stats['visit_count'] == 0:
+            continue  # Skip unused tactics
+        tactic_stats_output[tactic] = {
+            'visit_count': stats['visit_count']
+        }
+
+    with open(f'{output_prefix}_tactic_stats.json', 'w') as f:
+        json.dump(tactic_stats_output, f, indent=2)
+    print(f"  Saved tactic statistics to {output_prefix}_tactic_stats.json")
+
+    # 8. Tactic sequences (binary format for efficiency)
+    with open(f'{output_prefix}_tactic_sequences.pkl', 'wb') as f:
+        pickle.dump(all_tactic_sequences, f)
+    print(f"  Saved {len(all_tactic_sequences)} tactic sequences to {output_prefix}_tactic_sequences.pkl")
+
+    # 9. Summary report
     print("\n" + "="*60)
     print("STATE SUMMARY")
     print("="*60)
@@ -616,7 +743,33 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
         desc = describe_combination(c)
         print(f"  Combo {c}: {combo_out_degree[c]} target combinations - {desc}")
 
-    return transition_counts, state_stats, all_sequences, combo_transitions, combo_stats, all_combo_sequences
+    # Tactic summary
+    print("\n" + "="*60)
+    print("TACTIC SUMMARY")
+    print("="*60)
+
+    used_tactics = [t for t in TACTIC_NAMES if tactic_stats[t]['visit_count'] > 0]
+    print(f"\nUsed tactics: {len(used_tactics)} / {len(TACTIC_NAMES)}")
+
+    # Sort by visit count
+    sorted_tactics = sorted(used_tactics, key=lambda t: -tactic_stats[t]['visit_count'])
+
+    print(f"\nTop 20 most visited tactics:")
+    print(f"{'Tactic':<15} {'Visits':>12} {'% of Total':>10}")
+    print("-" * 40)
+    total_tactic_visits = sum(tactic_stats[t]['visit_count'] for t in used_tactics)
+    for t in sorted_tactics[:20]:
+        visits = tactic_stats[t]['visit_count']
+        pct = 100 * visits / total_tactic_visits
+        print(f"{t:<15} {visits:>12,} {pct:>9.2f}%")
+
+    # Tactic transitions summary
+    tactic_out_degree = {t: len(tactic_transitions[t]) for t in used_tactics}
+    print(f"\nTactics with highest out-degree (lead to many different tactics):")
+    for t in sorted(used_tactics, key=lambda x: -tactic_out_degree[x])[:10]:
+        print(f"  {t}: {tactic_out_degree[t]} target tactics")
+
+    return transition_counts, state_stats, all_sequences, combo_transitions, combo_stats, all_combo_sequences, tactic_transitions, tactic_stats, all_tactic_sequences
 
 
 if __name__ == '__main__':
