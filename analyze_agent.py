@@ -276,6 +276,9 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
     # All state sequences (for pattern analysis)
     all_sequences = []
 
+    # All combination sequences (for combo pattern analysis)
+    all_combo_sequences = []
+
     # Fitness distribution (score -> count)
     fitness_distribution = defaultdict(int)
 
@@ -322,8 +325,12 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
                         'board_layout': board  # Optional: save the full board array
                     })
 
-                # Store sequence
+                # Store state sequence
                 all_sequences.append(state_seq)
+
+                # Store combination sequence (extract combo_idx from each step)
+                combo_seq = [detail['combo_idx'] for detail in step_details]
+                all_combo_sequences.append(combo_seq)
 
                 # Update transition counts
                 for i in range(len(state_seq) - 1):
@@ -445,6 +452,11 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
     with open(f'{output_prefix}_sequences.pkl', 'wb') as f:
         pickle.dump(all_sequences, f)
     print(f"  Saved {len(all_sequences)} state sequences to {output_prefix}_sequences.pkl")
+
+    # 3b. Combination sequences (binary format for efficiency)
+    with open(f'{output_prefix}_combo_sequences.pkl', 'wb') as f:
+        pickle.dump(all_combo_sequences, f)
+    print(f"  Saved {len(all_combo_sequences)} combination sequences to {output_prefix}_combo_sequences.pkl")
 
     # 4. Combination transition graph (as edge list for visualization)
     combo_edges = []
@@ -604,7 +616,7 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
         desc = describe_combination(c)
         print(f"  Combo {c}: {combo_out_degree[c]} target combinations - {desc}")
 
-    return transition_counts, state_stats, all_sequences, combo_transitions, combo_stats
+    return transition_counts, state_stats, all_sequences, combo_transitions, combo_stats, all_combo_sequences
 
 
 if __name__ == '__main__':

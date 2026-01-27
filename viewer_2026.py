@@ -10,7 +10,45 @@ from PIL import Image, ImageDraw, ImageFont
 # ==========================================
 # To replay a specific board, paste the output dictionary here.
 # Example: OVERRIDE_CONFIG = {'board': [0, 0, ...], 'pos': [2, 3], 'dir': [0, 1]}
-OVERRIDE_CONFIG = None
+# OVERRIDE_CONFIG = None
+OVERRIDE_CONFIG = {'board': [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ], 'pos': [3, 2], 'dir': [0, -1]}
 # ==========================================
 
 # --- Inverted Index Mapping ---
