@@ -122,15 +122,15 @@ def create_adjusted_weight_matrix(normalized_weights: np.ndarray,
                                    hamming_similarity: np.ndarray,
                                    lambda_param: float = 0.45) -> np.ndarray:
     """
-    Create adjusted weight matrix combining transition probabilities and Hamming dissimilarity.
+    Create adjusted weight matrix combining transition probabilities and Hamming similarity.
 
-    w_{ij} = (1 - lambda) * NormalizedWeight + lambda * (1 - S_{ij})
-
-    Note: (1 - S_{ij}) represents Hamming dissimilarity, penalizing similar nodes
-    to encourage diverse behavior clustering.
+    w_{ij} = (1 - lambda) * NormalizedWeight + lambda * S_{ij}
     """
-    hamming_dissimilarity = 1.0 - hamming_similarity
-    adjusted = (1 - lambda_param) * normalized_weights + lambda_param * hamming_dissimilarity
+    # BUG FIX: Use similarity directly. 
+    # Spectral clustering interprets weight as "Affinity" (how close they are).
+    # Previous code used dissimilarity, which glued 'far' nodes together.
+    
+    adjusted = (1 - lambda_param) * normalized_weights + lambda_param * hamming_similarity 
     return adjusted
 
 
