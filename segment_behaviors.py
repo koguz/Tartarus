@@ -99,7 +99,7 @@ def pattern_str(pattern):
     return '-'.join(str(n) for n in nums)
 
 
-def dp_segment(sequence, frequencies, min_pattern_freq=100):
+def dp_segment(sequence, frequencies, min_pattern_freq=100, segment_penalty=2.0, length_bonus=0.5):
     """
     Use dynamic programming to find optimal segmentation.
 
@@ -107,6 +107,8 @@ def dp_segment(sequence, frequencies, min_pattern_freq=100):
         sequence: tuple of tactics to segment
         frequencies: dict mapping n-gram tuples to their frequencies
         min_pattern_freq: minimum frequency for a pattern to be in dictionary
+        segment_penalty: penalty for each segment break (encourages fewer, longer segments)
+        length_bonus: bonus multiplier for segment length (encourages longer segments)
 
     Returns:
         (score, segmentation) where segmentation is list of (start, end, pattern, freq)
@@ -116,8 +118,8 @@ def dp_segment(sequence, frequencies, min_pattern_freq=100):
         return (0, [])
 
     # best[i] = (score, segmentation) for sequence[0:i]
-    # score = sum of log(frequencies) of patterns used
-    # Higher score = better (more frequent patterns)
+    # score = sum of (log(freq) + length_bonus * length) - segment_penalty per segment
+    # Higher score = better
 
     import math
 
@@ -132,15 +134,16 @@ def dp_segment(sequence, frequencies, min_pattern_freq=100):
             segment_len = i - j
 
             if segment_len == 1:
-                # Single element - allow with small score (penalty for not finding pattern)
+                # Single element - allow with penalty
                 freq = frequencies.get(segment, 1)
-                score = math.log(freq + 1) * 0.5  # Penalty factor
+                score = math.log(freq + 1) * 0.3 - segment_penalty
             else:
                 # Multi-element pattern - check dictionary
                 freq = frequencies.get(segment, 0)
                 if freq < min_pattern_freq:
                     continue  # Skip patterns that are too rare
-                score = math.log(freq + 1)
+                # Score = log(freq) + bonus for length - penalty for creating a segment
+                score = math.log(freq + 1) + (length_bonus * segment_len) - segment_penalty
 
             candidate_score = best[j][0] + score
 
@@ -186,7 +189,8 @@ def analyze_segmentation(segmentation, original_freq):
 
 
 def segment_long_patterns(sequences, frequencies, min_behavior_length=6,
-                          min_behavior_freq=500, min_pattern_freq=100):
+                          min_behavior_freq=500, min_pattern_freq=100,
+                          segment_penalty=2.0, length_bonus=0.5):
     """
     Find and segment all long patterns.
 
@@ -196,6 +200,8 @@ def segment_long_patterns(sequences, frequencies, min_behavior_length=6,
         min_behavior_length: minimum length to consider as behavior
         min_behavior_freq: minimum frequency for a behavior
         min_pattern_freq: minimum frequency for dictionary patterns
+        segment_penalty: penalty for each segment (higher = fewer segments)
+        length_bonus: bonus for longer segments (higher = prefer longer)
 
     Returns:
         List of segmented behaviors
@@ -215,7 +221,8 @@ def segment_long_patterns(sequences, frequencies, min_behavior_length=6,
 
     for pattern, freq in long_patterns:
         # Run DP segmentation
-        score, segmentation = dp_segment(pattern, frequencies, min_pattern_freq)
+        score, segmentation = dp_segment(pattern, frequencies, min_pattern_freq,
+                                         segment_penalty, length_bonus)
 
         # Analyze the segmentation
         analysis = analyze_segmentation(segmentation, freq)
@@ -287,7 +294,7 @@ def save_results(behaviors, prefix, frequencies):
 
 
 def main(prefix='analysis', min_behavior_length=6, min_behavior_freq=500,
-         min_pattern_freq=100, max_ngram=12):
+         min_pattern_freq=100, max_ngram=12, segment_penalty=2.0, length_bonus=0.5):
     """Main analysis function."""
 
     print(f"Loading tactic sequences from {prefix}_tactic_sequences.pkl...")
@@ -326,11 +333,14 @@ def main(prefix='analysis', min_behavior_length=6, min_behavior_freq=500,
         print(f"    {n}-grams: {len(freqs)} patterns, max={max(freqs)}, median={sorted(freqs)[len(freqs)//2]}")
 
     print(f"\nSegmenting behaviors (min_length={min_behavior_length}, min_freq={min_behavior_freq})...")
+    print(f"  segment_penalty={segment_penalty}, length_bonus={length_bonus}")
     behaviors = segment_long_patterns(
         collapsed_numeric, frequencies,
         min_behavior_length=min_behavior_length,
         min_behavior_freq=min_behavior_freq,
-        min_pattern_freq=min_pattern_freq
+        min_pattern_freq=min_pattern_freq,
+        segment_penalty=segment_penalty,
+        length_bonus=length_bonus
     )
 
     print(f"\nSegmentation complete!")
@@ -365,6 +375,8 @@ if __name__ == '__main__':
     min_behavior_length = 6
     min_behavior_freq = 500
     min_pattern_freq = 100
+    segment_penalty = 2.0
+    length_bonus = 0.5
 
     i = 1
     while i < len(sys.argv):
@@ -378,8 +390,20 @@ if __name__ == '__main__':
         elif arg == '--min-pattern-freq' and i + 1 < len(sys.argv):
             min_pattern_freq = int(sys.argv[i + 1])
             i += 2
+        elif arg == '--segment-penalty' and i + 1 < len(sys.argv):
+            segment_penalty = float(sys.argv[i + 1])
+            i += 2
+        elif arg == '--length-bonus' and i + 1 < len(sys.argv):
+            length_bonus = float(sys.argv[i + 1])
+            i += 2
         elif arg == '--help':
             print(__doc__)
+            print("\nOptions:")
+            print("  --min-length N        Minimum behavior length (default: 6)")
+            print("  --min-freq N          Minimum behavior frequency (default: 500)")
+            print("  --min-pattern-freq N  Minimum pattern frequency for dictionary (default: 100)")
+            print("  --segment-penalty F   Penalty per segment, higher = fewer segments (default: 2.0)")
+            print("  --length-bonus F      Bonus per segment length, higher = longer segments (default: 0.5)")
             sys.exit(0)
         elif not arg.startswith('-'):
             prefix = arg
@@ -387,4 +411,5 @@ if __name__ == '__main__':
         else:
             i += 1
 
-    main(prefix, min_behavior_length, min_behavior_freq, min_pattern_freq)
+    main(prefix, min_behavior_length, min_behavior_freq, min_pattern_freq,
+         segment_penalty=segment_penalty, length_bonus=length_bonus)
