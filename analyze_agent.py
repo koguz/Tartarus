@@ -360,6 +360,9 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
     # Per-tactic statistics
     tactic_stats = {t: {'visit_count': 0} for t in TACTIC_NAMES}
 
+    # Tactic -> state mapping: which states are active for each tactic
+    tactic_state_counts = {t: defaultdict(int) for t in TACTIC_NAMES}
+
     # All tactic sequences (for tactic pattern analysis)
     all_tactic_sequences = []
 
@@ -441,6 +444,8 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
                     # Update per-tactic stats
                     if tactic in tactic_stats:
                         tactic_stats[tactic]['visit_count'] += 1
+                        # Track which state was active for this tactic
+                        tactic_state_counts[tactic][detail['state']] += 1
 
                     # Track transition to next tactic (if there is a next step)
                     if i < len(step_details) - 1:
@@ -629,6 +634,24 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
         json.dump(tactic_stats_output, f, indent=2)
     print(f"  Saved tactic statistics to {output_prefix}_tactic_stats.json")
 
+    # 7b. Tactic -> State mapping (which states are active for each tactic)
+    tactic_state_output = {}
+    for tactic in TACTIC_NAMES:
+        state_counts = dict(tactic_state_counts[tactic])
+        if not state_counts:
+            continue  # Skip unused tactics
+        # Sort states by count (descending)
+        sorted_states = sorted(state_counts.items(), key=lambda x: -x[1])
+        tactic_state_output[tactic] = {
+            'states': [s for s, _ in sorted_states],  # List of states (ordered by frequency)
+            'state_counts': state_counts,  # Full state -> count mapping
+            'num_states': len(state_counts)
+        }
+
+    with open(f'{output_prefix}_tactic_state_mapping.json', 'w') as f:
+        json.dump(tactic_state_output, f, indent=2)
+    print(f"  Saved tactic-state mapping to {output_prefix}_tactic_state_mapping.json")
+
     # 8. Tactic sequences (binary format for efficiency)
     with open(f'{output_prefix}_tactic_sequences.pkl', 'wb') as f:
         pickle.dump(all_tactic_sequences, f)
@@ -769,7 +792,7 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
     for t in sorted(used_tactics, key=lambda x: -tactic_out_degree[x])[:10]:
         print(f"  {t}: {tactic_out_degree[t]} target tactics")
 
-    return transition_counts, state_stats, all_sequences, combo_transitions, combo_stats, all_combo_sequences, tactic_transitions, tactic_stats, all_tactic_sequences
+    return transition_counts, state_stats, all_sequences, combo_transitions, combo_stats, all_combo_sequences, tactic_transitions, tactic_stats, all_tactic_sequences, tactic_state_counts
 
 
 if __name__ == '__main__':
