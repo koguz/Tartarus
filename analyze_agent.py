@@ -166,6 +166,24 @@ def get_all_tactic_names():
 TACTIC_NAMES = get_all_tactic_names()
 
 
+def tactic_to_decimal(tactic_str):
+    """
+    Convert tactic string to decimal (0-63).
+
+    Encoding: B=32, F=16, S=8, K=4, W=2, T=1
+    Example: B---W_F = 100010 = 34
+    """
+    combo, action = tactic_str.split('_')
+    n = 0
+    if combo[0] == 'B': n += 32
+    if combo[1] == 'F': n += 16
+    if combo[2] == 'S': n += 8
+    if combo[3] == 'K': n += 4
+    if combo[4] == 'W': n += 2
+    if action == 'T': n += 1
+    return n
+
+
 def load_agent(filepath, num_states=128):
     """Load agent from file. Returns (actions, next_states, initial_state)."""
     with open(filepath, 'r') as f:
@@ -366,6 +384,10 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
     # All tactic sequences (for tactic pattern analysis)
     all_tactic_sequences = []
 
+    # (Tactic, State) transition graph: ts_transitions[(tactic, state)][(tactic', state')] = count
+    # Nodes are (tactic, state) pairs, edges are directed transitions
+    ts_transitions = defaultdict(lambda: defaultdict(int))
+
     # Run all configurations
     total_fitness = 0
     config_count = 0
@@ -452,6 +474,11 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
                         next_detail = step_details[i + 1]
                         next_tactic = classify_tactic(next_detail['combo_idx'], next_detail['action_type'])
                         tactic_transitions[tactic][next_tactic] += 1
+
+                        # Track (tactic, state) -> (tactic', state') transitions
+                        current_state = detail['state']
+                        next_state = next_detail['state']
+                        ts_transitions[(tactic, current_state)][(next_tactic, next_state)] += 1
 
                 all_tactic_sequences.append(tactic_seq)
 
@@ -652,6 +679,37 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
         json.dump(tactic_state_output, f, indent=2)
     print(f"  Saved tactic-state mapping to {output_prefix}_tactic_state_mapping.json")
 
+    # 7c. (Tactic, State) transition graph
+    # Nodes are (tactic_decimal, state) pairs, edges are directed transitions
+    # Tactic is stored as decimal (0-63) for consistency with other tools
+    ts_edges = []
+    ts_nodes = set()
+    for (from_tactic, from_state), targets in ts_transitions.items():
+        from_tactic_dec = tactic_to_decimal(from_tactic)
+        ts_nodes.add((from_tactic_dec, from_state))
+        for (to_tactic, to_state), weight in targets.items():
+            to_tactic_dec = tactic_to_decimal(to_tactic)
+            ts_nodes.add((to_tactic_dec, to_state))
+            ts_edges.append({
+                'source': {'tactic': from_tactic_dec, 'state': from_state},
+                'target': {'tactic': to_tactic_dec, 'state': to_state},
+                'weight': weight
+            })
+
+    # Convert nodes to list format (sorted by tactic then state)
+    ts_nodes_list = [{'tactic': t, 'state': s} for t, s in sorted(ts_nodes)]
+
+    with open(f'{output_prefix}_tactic_state_transitions.json', 'w') as f:
+        json.dump({
+            'nodes': ts_nodes_list,
+            'edges': ts_edges,
+            'num_nodes': len(ts_nodes_list),
+            'num_edges': len(ts_edges),
+            'total_configs': config_count
+        }, f, indent=2)
+    print(f"  Saved (tactic, state) transition graph to {output_prefix}_tactic_state_transitions.json")
+    print(f"    Nodes: {len(ts_nodes_list)}, Edges: {len(ts_edges)}")
+
     # 8. Tactic sequences (binary format for efficiency)
     with open(f'{output_prefix}_tactic_sequences.pkl', 'wb') as f:
         pickle.dump(all_tactic_sequences, f)
@@ -792,7 +850,27 @@ def analyze_agent(agent_path, boards_path, output_prefix='analysis', num_states=
     for t in sorted(used_tactics, key=lambda x: -tactic_out_degree[x])[:10]:
         print(f"  {t}: {tactic_out_degree[t]} target tactics")
 
-    return transition_counts, state_stats, all_sequences, combo_transitions, combo_stats, all_combo_sequences, tactic_transitions, tactic_stats, all_tactic_sequences, tactic_state_counts
+    # (Tactic, State) graph summary
+    print(f"\n" + "="*60)
+    print("(TACTIC, STATE) TRANSITION GRAPH SUMMARY")
+    print("="*60)
+    print(f"  Total unique (tactic, state) nodes: {len(ts_nodes)}")
+    print(f"  Total transitions: {len(ts_edges)}")
+
+    # Find most common (tactic, state) pairs
+    ts_node_visits = defaultdict(int)
+    for (from_tactic, from_state), targets in ts_transitions.items():
+        for (to_tactic, to_state), weight in targets.items():
+            ts_node_visits[(from_tactic, from_state)] += weight
+            ts_node_visits[(to_tactic, to_state)] += weight
+
+    sorted_ts_nodes = sorted(ts_node_visits.items(), key=lambda x: -x[1])[:10]
+    print(f"\n  Top 10 most visited (tactic, state) pairs:")
+    for (tactic, state), visits in sorted_ts_nodes:
+        tactic_dec = tactic_to_decimal(tactic)
+        print(f"    (tactic={tactic_dec}, state={state}): {visits:,} visits")
+
+    return transition_counts, state_stats, all_sequences, combo_transitions, combo_stats, all_combo_sequences, tactic_transitions, tactic_stats, all_tactic_sequences, tactic_state_counts, ts_transitions
 
 
 if __name__ == '__main__':

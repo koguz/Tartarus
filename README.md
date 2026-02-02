@@ -168,6 +168,13 @@ Each gene contains:
 
 The last gene (`G-1`) stores the initial state.
 
+# Analysis
+
+For analysis follow the following steps. 
+
+
+
+
 # Behavior Segmentation
 
 Run behavior_segmentation.py with a lambda parameter of 0.2 or 0.25 to give longer sequences in the clusters. Then run print_cluster_tactics.py to get the sequences in the cluster. There's also a behavior_cluster_decoder.py that attempts to decode the actions. 

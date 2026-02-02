@@ -161,7 +161,7 @@ def spectral_clustering(nodes: list, edges: list, plot_eigenvalues: bool = True,
 
 
 def infomap_clustering(nodes: list, edges: list, markov_time: float = 1.0,
-                       num_trials: int = 10, preferred_num_modules: int = None):
+                       num_trials: int = 100, preferred_num_modules: int = None):
     """
     Perform Infomap clustering on directed state transition graph.
     Returns cluster labels for each node.
