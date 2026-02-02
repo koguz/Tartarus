@@ -180,7 +180,7 @@ def infomap_clustering(nodes: list, edges: list, markov_time: float = 1.0,
     print("="*60)
 
     # Build Infomap command
-    cmd = f"--directed --silent --num-trials {num_trials} --markov-time {markov_time}"
+    cmd = f"--directed --silent --seed 42 --num-trials {num_trials} --markov-time {markov_time}"
     if preferred_num_modules is not None:
         cmd += f" --preferred-number-of-modules {preferred_num_modules}"
     print(f"  Parameters: {cmd}")
