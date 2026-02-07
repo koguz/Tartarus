@@ -7,89 +7,84 @@
 #include <cuda.h>
 #include <curand_kernel.h>
 
-// --- OPTIMIZATION: Constant Memory for Lookups ---
-// Powers of 3 for base-3 encoding (up to 3^8)
-__constant__ int POW3[8] = { 1, 3, 9, 27, 81, 243, 729, 2187 };
+// CUDA error checking macro
+#define CUDA_CHECK(call) do { \
+    cudaError_t err = call; \
+    if (err != cudaSuccess) { \
+        printf("CUDA Error at %s:%d - %s\n", __FILE__, __LINE__, cudaGetErrorString(err)); \
+        exit(1); \
+    } \
+} while(0)
 
-// Direction encoding matches kernel.cu's switch statement exactly:
-// dir=0: (0,-1), dir=1: (0,1), dir=2: (1,0), dir=3: (-1,0)
+#define CUDA_CHECK_KERNEL() do { \
+    cudaError_t err = cudaGetLastError(); \
+    if (err != cudaSuccess) { \
+        printf("CUDA Kernel Error at %s:%d - %s\n", __FILE__, __LINE__, cudaGetErrorString(err)); \
+        exit(1); \
+    } \
+} while(0)
+
+// --- CONSTANTS ---
+#define R 6
+#define C 383
+#define MAX_STATES 128  // Maximum supported states for static array
+
+__constant__ int POW3[8] = { 1, 3, 9, 27, 81, 243, 729, 2187 };
 __constant__ int DIR_X[4] = { 0, 0, 1, -1 };
 __constant__ int DIR_Y[4] = { -1, 1, 0, 0 };
-
-// Precomputed 8-step rotation sequences for each starting direction
-// SCAN_X[dir][step], SCAN_Y[dir][step] - computed from rotate_ccw(&cd, 4)
-// dir=0 starts (0,-1): (0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1)
-// dir=1 starts (0,1):  (0,1),(-1,1),(-1,0),(-1,-1),(0,-1),(1,-1),(1,0),(1,1)
-// dir=2 starts (1,0):  (1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1),(0,-1),(1,-1)
-// dir=3 starts (-1,0): (-1,0),(-1,-1),(0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1)
 __constant__ int SCAN_X[4][8] = {
-    { 0,  1,  1,  1,  0, -1, -1, -1},  // dir=0
-    { 0, -1, -1, -1,  0,  1,  1,  1},  // dir=1
-    { 1,  1,  0, -1, -1, -1,  0,  1},  // dir=2
-    {-1, -1,  0,  1,  1,  1,  0, -1}   // dir=3
+    { 0,  1,  1,  1,  0, -1, -1, -1},
+    { 0, -1, -1, -1,  0,  1,  1,  1},
+    { 1,  1,  0, -1, -1, -1,  0,  1},
+    {-1, -1,  0,  1,  1,  1,  0, -1}
 };
 __constant__ int SCAN_Y[4][8] = {
-    {-1, -1,  0,  1,  1,  1,  0, -1},  // dir=0
-    { 1,  1,  0, -1, -1, -1,  0,  1},  // dir=1
-    { 0,  1,  1,  1,  0, -1, -1, -1},  // dir=2
-    { 0, -1, -1, -1,  0,  1,  1,  1}   // dir=3
+    {-1, -1,  0,  1,  1,  1,  0, -1},
+    { 1,  1,  0, -1, -1, -1,  0,  1},
+    { 0,  1,  1,  1,  0, -1, -1, -1},
+    { 0, -1, -1, -1,  0,  1,  1,  1}
 };
-
-// Turn lookup tables (precomputed from rotate_ccw)
-// Left turn: rotate_ccw(&cd, 0.66) ≈ 273° CCW
-// Right turn: rotate_ccw(&cd, 2) = 90° CCW
-__constant__ int TURN_LEFT[4]  = { 3, 2, 0, 1 };  // 0→3, 1→2, 2→0, 3→1
-__constant__ int TURN_RIGHT[4] = { 2, 3, 1, 0 };  // 0→2, 1→3, 2→1, 3→0
-
-// Inverted Index for fast sensor lookup (fits in 64KB constant cache)
+__constant__ int TURN_LEFT[4]  = { 3, 2, 0, 1 };
+__constant__ int TURN_RIGHT[4] = { 2, 3, 1, 0 };
 __constant__ int CONST_IX[6561];
 
 typedef struct gene_struct {
     int next_state;
     int action;
-    int m_fitness;
-    int fitness;
-    int used;
+    int m_fitness;  // Maximum fitness when this gene was used
+    int fitness;    // Cumulative fitness sum when this gene was used
+    int used;       // Count of times this gene was used
 } gene;
 
-typedef struct position {
-    int x;
-    int y;
-} pos;
-
-// --- HOST HELPERS ---
 void initConstMemory(int* h_ix) {
     cudaMemcpyToSymbol(CONST_IX, h_ix, 6561 * sizeof(int));
 }
 
 void shuffle(int* arr, int S) {
-    int i;
-    for (i = 0; i < S; i++) arr[i] = i;
-    for (i = S - 1; i > 0; i--) {
+    for (int i = 0; i < S; i++) arr[i] = i;
+    for (int i = S - 1; i > 0; i--) {
         int r = rand() % i;
-        int t = arr[i];
-        arr[i] = arr[r];
-        arr[r] = t;
+        int t = arr[i]; arr[i] = arr[r]; arr[r] = t;
     }
 }
 
 // --- KERNELS ---
 
-__global__ void __launch_bounds__(512) setup_states(curandState* state, unsigned long long seed) {
+__global__ void setup_states(curandState* state, unsigned long long seed, int count) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
-    curand_init(seed, id, 0, &state[id]);
+    if (id < count) curand_init(seed, id, 0, &state[id]);
 }
 
-__global__ void __launch_bounds__(512) init_population(gene* pop, int G, int S, curandState* state) {
+__global__ void init_population(gene* pop, int G, int S, curandState* state, int N) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id >= N) return;
     curandState localState = state[id];
     int s = id * G;
     for (int i = s; i < s + G; i++) {
         int myrand = curand(&localState) % 100;
-        if (myrand < 40) pop[i].action = 0;      // Forward
-        else if (myrand < 70) pop[i].action = 1; // Left
-        else pop[i].action = 2;                  // Right
-        
+        if (myrand < 40) pop[i].action = 0;
+        else if (myrand < 70) pop[i].action = 1;
+        else pop[i].action = 2;
         pop[i].next_state = curand(&localState) % S;
         pop[i].fitness = 0;
         pop[i].m_fitness = 0;
@@ -98,31 +93,30 @@ __global__ void __launch_bounds__(512) init_population(gene* pop, int G, int S, 
     state[id] = localState;
 }
 
-__global__ void __launch_bounds__(1024) generate_boards(int* boards, curandState* state, int R) {
+// Generate random boards (6 boxes in inner 4x4, no 2x2 blocks)
+// Board convention: board[y * 6 + x] where y=row, x=column (matches run kernel)
+__global__ void generate_boards(int* boards, curandState* state, int count) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id >= count) return;
     curandState localState = state[id];
-    int s = id * R * R;
+    int s = id * 36;
     while (true) {
-        // Clear board
-        for (int i = 0; i < R * R; i++) boards[s + i] = 0;
-        
-        // Place 6 boxes
-        int i = 0;
-        while (i < 6) {
-            int x = (curand(&localState) % (R - 2)) + 1;
-            int y = (curand(&localState) % (R - 2)) + 1;
-            if (boards[s + (x * R + y)] == 0) {
-                boards[s + (x * R + y)] = 1;
-                i++;
+        for (int i = 0; i < 36; i++) boards[s + i] = 0;
+        int placed = 0;
+        while (placed < 6) {
+            int x = (curand(&localState) % 4) + 1;  // column (1-4)
+            int y = (curand(&localState) % 4) + 1;  // row (1-4)
+            if (boards[s + y * 6 + x] == 0) {
+                boards[s + y * 6 + x] = 1;
+                placed++;
             }
         }
-        
-        // Check for 2x2 blocks (impossible condition)
+        // Check for 2x2 blocks (impossible configuration)
         bool repeat = false;
-        for (int x = 1; x < R - 2; x++) {
-            for (int y = 1; y < R - 2; y++) {
-                int idx = s + x * R + y;
-                if (boards[idx] && boards[idx + 1] && boards[idx + R] && boards[idx + R + 1]) {
+        for (int y = 1; y <= 3; y++) {
+            for (int x = 1; x <= 3; x++) {
+                int idx = s + y * 6 + x;
+                if (boards[idx] && boards[idx + 1] && boards[idx + 6] && boards[idx + 7]) {
                     repeat = true;
                     break;
                 }
@@ -134,397 +128,406 @@ __global__ void __launch_bounds__(1024) generate_boards(int* boards, curandState
     state[id] = localState;
 }
 
-// --- OPTIMIZED RUN KERNEL ---
-// Launch bounds: 1024 threads max for P up to 1024
-__global__ void __launch_bounds__(1024, 1) run_boards_optimized(
+// D2 version: Run one individual on one random board AND track gene usage
+// Updates gene.fitness, gene.used using atomicAdd
+__global__ void run_boards_D2(
     gene* pop,
-    int* boards,
-    curandState* state,
-    int R,
+    int* boards,        // N * P * 36 board layouts
+    curandState* state, // N * P random states (for starting position/direction)
+    int* F,             // N * P fitness scores
     int G,
-    int M, // Moves (80)
-    int C, // Combinations (383)
-    int* F,
-    int* sum_occ,
-    int* statistics) 
-{
-    // Shared memory: [Actions (G)] [NextStates (G)]
-    extern __shared__ int shared_mem[];
-    int* s_actions = &shared_mem[0];
-    int* s_nexts   = &shared_mem[G];
+    int S,
+    int N,
+    int P
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = N * P;
+    if (idx >= total) return;
 
-    int tid = threadIdx.x;
-    int bid = blockIdx.x;
-    int id = bid * blockDim.x + tid;
-    
-    // 1. Cooperative Load: Load Individual's FSM into Shared Memory
-    int ind_offset = bid * G;
-    for (int i = tid; i < G; i += blockDim.x) {
-        s_actions[i] = pop[ind_offset + i].action;
-        s_nexts[i]   = pop[ind_offset + i].next_state;
+    int ind = idx / P;  // which individual (0 to N-1)
+
+    // Copy board to local memory
+    int board[36];
+    int board_offset = idx * 36;
+    for (int i = 0; i < 36; i++) {
+        board[i] = boards[board_offset + i];
     }
-    __syncthreads(); 
 
-    // 2. Setup Board
-    curandState localState = state[id];
-    int brd_offset = id * R * R;
-    
-    // Find start position
-    int px, py;
+    // Random starting position (empty cell in inner 4x4)
+    curandState localState = state[idx];
+    int cpx, cpy;
     while (true) {
-        px = (curand(&localState) % (R - 2)) + 1;
-        py = (curand(&localState) % (R - 2)) + 1;
-        if (boards[brd_offset + (px * R + py)] == 0) break;
+        cpx = (curand(&localState) % 4) + 1;  // column (1-4)
+        cpy = (curand(&localState) % 4) + 1;  // row (1-4)
+        if (board[cpy * 6 + cpx] == 0) break;
     }
-
-    // Random Direction (0=N, 1=E, 2=S, 3=W)
     int dir = curand(&localState) % 4;
 
-    int current_state = s_nexts[G - 1]; // Initial state gene
-    
-    // Path tracking for fitness credit (Max 80 moves)
-    // We store the 'gene_index' used for each move to update stats later
-    int path[80]; 
+    // Get individual's genes
+    gene* my_genes = &pop[ind * G];
+    int cs = my_genes[G - 1].next_state;  // initial state
 
-    // 3. Move Loop
-    for (int move = 0; move < M; move++) {
-        // Calculate Sensor Input using precomputed rotation table
-        // SCAN_X[dir][n], SCAN_Y[dir][n] gives exact same result as rotate_ccw(&cd, 4)
-        int sensor_val = 0;
+    // D2: Track which genes were used during this run
+    int used_genes[80];
+    int num_used = 0;
 
-        #pragma unroll
-        for (int n = 0; n < 8; n++) {
-            int nx = px + SCAN_X[dir][n];
-            int ny = py + SCAN_Y[dir][n];
+    // Run 80 moves
+    for (int move = 0; move < 80; move++) {
+        // Compute sensor input
+        int cc = 0;
+        for (int m = 0; m < 8; m++) {
+            int sx = cpx + SCAN_X[dir][m];
+            int sy = cpy + SCAN_Y[dir][m];
+            int val = (sx < 0 || sy < 0 || sx >= 6 || sy >= 6) ? 2 : board[sy * 6 + sx];
+            cc += POW3[m] * val;
+        }
+        cc = CONST_IX[cc];
 
-            int cell_val = 2; // Wall (out of bounds)
-            if (nx >= 0 && ny >= 0 && nx < R && ny < R) {
-                cell_val = boards[brd_offset + (nx * R + ny)];
+        int gene_idx = cs * C + cc;
+        int action = my_genes[gene_idx].action;
+        cs = my_genes[gene_idx].next_state;
+
+        // Track this gene as used (check if already in list to avoid duplicates)
+        bool already_used = false;
+        for (int u = 0; u < num_used; u++) {
+            if (used_genes[u] == gene_idx) {
+                already_used = true;
+                break;
             }
-
-            sensor_val += cell_val * POW3[n];
+        }
+        if (!already_used && num_used < 80) {
+            used_genes[num_used++] = gene_idx;
         }
 
-        int cc = CONST_IX[sensor_val];
-        int gene_idx = current_state * C + cc;
-
-        // Store path for later stats
-        path[move] = gene_idx;
-
-        int action = s_actions[gene_idx];
-        int next_s = s_nexts[gene_idx];
-
-        if (action == 0) { // Forward
-            int fx = px + DIR_X[dir];
-            int fy = py + DIR_Y[dir];
-            if (fx >= 0 && fy >= 0 && fx < R && fy < R) {
-                int content = boards[brd_offset + (fx * R + fy)];
-                if (content == 0) {
-                    px = fx; py = fy;
-                } else if (content == 1) { // Box
-                    int bx = fx + DIR_X[dir];
-                    int by = fy + DIR_Y[dir];
-                    if (bx >= 0 && by >= 0 && bx < R && by < R) {
-                        if (boards[brd_offset + (bx * R + by)] == 0) {
-                            boards[brd_offset + (fx * R + fy)] = 0;
-                            boards[brd_offset + (bx * R + by)] = 1;
-                            px = fx; py = fy;
-                        }
+        // Execute action
+        if (action == 0) {  // Forward
+            int cx = cpx + DIR_X[dir];
+            int cy = cpy + DIR_Y[dir];
+            if (cx >= 0 && cy >= 0 && cx < 6 && cy < 6) {
+                if (board[cy * 6 + cx] == 0) {
+                    cpx = cx; cpy = cy;
+                } else {
+                    int dx = cx + DIR_X[dir];
+                    int dy = cy + DIR_Y[dir];
+                    if (dx >= 0 && dy >= 0 && dx < 6 && dy < 6 && board[dy * 6 + dx] == 0) {
+                        board[cy * 6 + cx] = 0;
+                        board[dy * 6 + dx] = 1;
+                        cpx = cx; cpy = cy;
                     }
                 }
             }
+        } else if (action == 1) {
+            dir = TURN_LEFT[dir];
+        } else if (action == 2) {
+            dir = TURN_RIGHT[dir];
         }
-        else if (action == 1) { // Turn Left - use precomputed lookup
-             dir = TURN_LEFT[dir];
-        }
-        else if (action == 2) { // Turn Right - use precomputed lookup
-             dir = TURN_RIGHT[dir];
-        }
-        current_state = next_s;
     }
 
-    // 4. Fitness Calculation - MUST match kernel_v3.cu exactly
-    // A box at edge row gets +1, a box at edge column gets +1
-    // Corner boxes get +2 (touching two walls)
+    // Calculate fitness
     int f = 0;
-    for (int i = 0; i < R; i++) {
-        for (int j = 0; j < R; j++) {
-            int ii = brd_offset + (i * R + j);
-            if (boards[ii] == 1) {
-                if (i % R == 0 || i % (R - 1) == 0) f++;
-                if (j % R == 0 || j % (R - 1) == 0) f++;
+    for (int i = 0; i < 6; i++) {
+        for (int j = 0; j < 6; j++) {
+            if (board[i * 6 + j] == 1) {
+                if (i == 0 || i == 5) f++;
+                if (j == 0 || j == 5) f++;
             }
         }
     }
-    F[id] = f;
+    F[idx] = f;
 
-    // 5. Update Gene Fitness (Design 2 requirement)
-    // We use the 'path' array to credit genes that contributed to this score.
-    // Use a small local bitmask to prevent double-counting per board (as per original logic)
-    // G is max ~4600. We need ~144 ints for bitmask.
-    int seen_mask[150]; // Covers up to G=4800
-    for(int k=0; k<150; k++) seen_mask[k] = 0;
-    
-    for (int k = 0; k < M; k++) {
-        int g_idx = path[k];
-        int word = g_idx / 32;
-        int bit  = g_idx % 32;
-        
-        if (!(seen_mask[word] & (1 << bit))) {
-            // First time seeing this gene on this board
-            seen_mask[word] |= (1 << bit);
-            
-            // Atomic updates to global memory
-            // Note: This is the bottleneck, but required for Design 2
-            atomicAdd(&(pop[ind_offset + g_idx]).fitness, f);
-            atomicAdd(&(pop[ind_offset + g_idx]).used, 1);
-            
-            // Max fitness tracking
-            int old = pop[ind_offset + g_idx].m_fitness;
-            if (f > old) atomicMax(&(pop[ind_offset + g_idx]).m_fitness, f);
-        }
+    // D2: Update gene statistics for all used genes
+    int ind_offset = ind * G;
+    for (int u = 0; u < num_used; u++) {
+        int gi = used_genes[u];
+        atomicAdd(&pop[ind_offset + gi].fitness, f);
+        atomicAdd(&pop[ind_offset + gi].used, 1);
     }
-    state[id] = localState;
+
+    state[idx] = localState;
 }
 
-__global__ void __launch_bounds__(512) average_fitness(int P, int* F, float* avg_fit, int G) {
-    int id = blockIdx.x * blockDim.x + threadIdx.x;
-    int s = id * P;
+// Average fitness for each individual
+__global__ void average_fitness(int* F, float* avg_fit, int N, int P) {
+    int ind = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ind >= N) return;
+
     int sum = 0;
-    for (int i = s; i < s + P; i++) sum += F[i];
-    avg_fit[id] = (float)sum / (float)P;
+    int offset = ind * P;
+    for (int i = 0; i < P; i++) {
+        sum += F[offset + i];
+    }
+    avg_fit[ind] = (float)sum / (float)P;
 }
 
-__global__ void __launch_bounds__(512) crossover(
-    int* idx, float* f, gene* pop, int G, int S, curandState* state,
-    float ftmax, float ftbar, int* sum_occ, int option
+// D2 crossover: Uses gene fitness/used ratio to decide which parent's gene to use
+__global__ void crossover_D2(
+    int* idx_arr,
+    float* avg_fit,
+    gene* pop,
+    int G, int S,
+    curandState* state,
+    float best_ind_fit,
+    float best_gen_fit,
+    int N
 ) {
-    int id = 4 * (blockIdx.x * blockDim.x + threadIdx.x);
-    curandState localState = state[id];
+    int group = blockIdx.x * blockDim.x + threadIdx.x;
+    if (group >= N / 4) return;
 
-    // Tournament Selection (Best 2 of 4)
-    float max1 = -1.0f, max2 = -1.0f;
-    int idx1 = -1, idx2 = -1;
-    for (int i = id; i < id + 4; i++) {
-        int indiv = idx[i];
-        if (f[indiv] > max1) {
-            max2 = max1; idx2 = idx1;
-            max1 = f[indiv]; idx1 = indiv;
-        } else if (f[indiv] > max2) {
-            max2 = f[indiv]; idx2 = indiv;
-        }
-    }
-    
-    // Identify Losers (to replace)
-    int min1 = -1, min2 = -1;
-    for (int i = id; i < id + 4; i++) {
-        int indiv = idx[i];
-        if (indiv != idx1 && indiv != idx2) {
-            if (min1 == -1) min1 = indiv;
-            else min2 = indiv;
-        }
+    curandState localState = state[group];
+    int base = group * 4;
+
+    // Find best 2 and worst 2 in group of 4
+    float fits[4];
+    int ids[4];
+    for (int i = 0; i < 4; i++) {
+        ids[i] = idx_arr[base + i];
+        fits[i] = avg_fit[ids[i]];
     }
 
-    // Adaptive Mutation Rate
-    int k = 10;
-    float pm1 = k * 0.5f / G;
-    float pm2 = k * 0.5f / G;
-    if (f[idx1] >= ftbar) pm1 = k * (ftmax - f[idx1]) / (ftmax - ftbar) / G;
-    if (f[idx2] >= ftbar) pm2 = k * (ftmax - f[idx2]) / (ftmax - ftbar) / G;
+    // Simple bubble sort
+    for (int i = 0; i < 3; i++) {
+        for (int j = i + 1; j < 4; j++) {
+            if (fits[j] > fits[i]) {
+                float tf = fits[i]; fits[i] = fits[j]; fits[j] = tf;
+                int ti = ids[i]; ids[i] = ids[j]; ids[j] = ti;
+            }
+        }
+    }
 
-    // Crossover Loop
+    int p1 = ids[0], p2 = ids[1];  // parents (best 2)
+    int c1 = ids[2], c2 = ids[3];  // children (worst 2)
+
+    // D2 crossover based on gene fitness/used ratio
     for (int i = 0; i < G; i++) {
-        float v1 = 0, v2 = 0;
-        
-        // Design 2: Fitness-based
-        if (option == 2) {
-            if (pop[idx1 * G + i].used > 0)
-                v1 = (float)pop[idx1 * G + i].fitness / pop[idx1 * G + i].used; // or m_fitness
-            if (pop[idx2 * G + i].used > 0)
-                v2 = (float)pop[idx2 * G + i].fitness / pop[idx2 * G + i].used;
-        }
-        
-        // Parent Selection Logic
-        int p1_action, p1_next, p2_action, p2_next;
-        
-        // Elitist / Weighted Selection between Parents
-        if (v1 > v2 || (v1 == v2 && (curand(&localState) % 2 == 0))) {
-            p1_action = pop[idx1 * G + i].action; p1_next = pop[idx1 * G + i].next_state;
-            p2_action = pop[idx2 * G + i].action; p2_next = pop[idx2 * G + i].next_state;
+        // Compute ratio = fitness/used for each parent's gene
+        float ratio1 = 0.0f, ratio2 = 0.0f;
+        if (pop[p1 * G + i].used > 0)
+            ratio1 = (float)pop[p1 * G + i].fitness / (float)pop[p1 * G + i].used;
+        if (pop[p2 * G + i].used > 0)
+            ratio2 = (float)pop[p2 * G + i].fitness / (float)pop[p2 * G + i].used;
+
+        gene g1 = pop[p1 * G + i];
+        gene g2 = pop[p2 * G + i];
+
+        gene winner, loser;
+        if (ratio1 > ratio2) {
+            // p1's gene has higher average fitness - it goes to c1
+            winner = g1;
+            loser = g2;
+        } else if (ratio2 > ratio1) {
+            // p2's gene has higher average fitness - it goes to c1
+            winner = g2;
+            loser = g1;
         } else {
-            p1_action = pop[idx2 * G + i].action; p1_next = pop[idx2 * G + i].next_state;
-            p2_action = pop[idx1 * G + i].action; p2_next = pop[idx1 * G + i].next_state;
+            // Ratios equal (including both 0) - use 50/50 random like D0
+            if (curand(&localState) % 2 == 0) {
+                winner = g1;
+                loser = g2;
+            } else {
+                winner = g2;
+                loser = g1;
+            }
         }
 
-        // Apply to Offspring 1
-        if (curand_uniform(&localState) <= pm1) {
-            pop[min1 * G + i].action = curand(&localState) % 3;
-            pop[min1 * G + i].next_state = curand(&localState) % S;
+        // Calculate mutation probability
+        float f_c1 = avg_fit[c1];
+        float pm = (f_c1 >= best_gen_fit) ?
+            10.0f * (best_ind_fit - f_c1) / (best_ind_fit - best_gen_fit + 0.001f) / G :
+            5.0f / G;
+
+        // Assign to child 1 (winner gene - higher ratio)
+        if ((curand(&localState) % 1000) / 1000.0f < pm) {
+            int myrand = curand(&localState) % 100;
+            if (myrand < 40) pop[c1 * G + i].action = 0;
+            else if (myrand < 70) pop[c1 * G + i].action = 1;
+            else pop[c1 * G + i].action = 2;
+            pop[c1 * G + i].next_state = curand(&localState) % S;
         } else {
-            pop[min1 * G + i].action = p1_action;
-            pop[min1 * G + i].next_state = p1_next;
-        }
-        
-        // Apply to Offspring 2
-        if (curand_uniform(&localState) <= pm2) {
-            pop[min2 * G + i].action = curand(&localState) % 3;
-            pop[min2 * G + i].next_state = curand(&localState) % S;
-        } else {
-            pop[min2 * G + i].action = p2_action;
-            pop[min2 * G + i].next_state = p2_next;
+            pop[c1 * G + i].action = winner.action;
+            pop[c1 * G + i].next_state = winner.next_state;
         }
 
-        // Reset stats for next gen
-        pop[idx1 * G + i].fitness = 0; pop[idx1 * G + i].used = 0; pop[idx1 * G + i].m_fitness = 0;
-        pop[idx2 * G + i].fitness = 0; pop[idx2 * G + i].used = 0; pop[idx2 * G + i].m_fitness = 0;
-        pop[min1 * G + i].fitness = 0; pop[min1 * G + i].used = 0; pop[min1 * G + i].m_fitness = 0;
-        pop[min2 * G + i].fitness = 0; pop[min2 * G + i].used = 0; pop[min2 * G + i].m_fitness = 0;
+        // Assign to child 2 (loser gene - lower ratio)
+        if ((curand(&localState) % 1000) / 1000.0f < pm) {
+            int myrand = curand(&localState) % 100;
+            if (myrand < 40) pop[c2 * G + i].action = 0;
+            else if (myrand < 70) pop[c2 * G + i].action = 1;
+            else pop[c2 * G + i].action = 2;
+            pop[c2 * G + i].next_state = curand(&localState) % S;
+        } else {
+            pop[c2 * G + i].action = loser.action;
+            pop[c2 * G + i].next_state = loser.next_state;
+        }
+
+        // Reset gene stats for all 4 individuals (for next generation)
+        pop[p1 * G + i].fitness = 0;
+        pop[p1 * G + i].used = 0;
+        pop[p1 * G + i].m_fitness = 0;
+        pop[p2 * G + i].fitness = 0;
+        pop[p2 * G + i].used = 0;
+        pop[p2 * G + i].m_fitness = 0;
+        pop[c1 * G + i].fitness = 0;
+        pop[c1 * G + i].used = 0;
+        pop[c1 * G + i].m_fitness = 0;
+        pop[c2 * G + i].fitness = 0;
+        pop[c2 * G + i].used = 0;
+        pop[c2 * G + i].m_fitness = 0;
     }
-    state[id] = localState;
+    state[group] = localState;
+}
+
+// Copy best individual
+__global__ void copy_best(gene* pop, gene* best, int G, int best_idx) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < G) {
+        best[i] = pop[best_idx * G + i];
+    }
 }
 
 // --- MAIN ---
 int main(int argc, char** argv) {
-    // Default Arguments or CLI
-    // RTX 5070 optimized defaults: larger population and more boards
-    int N_mul = (argc > 1) ? atoi(argv[1]) : 8;   // Was 5, now 8 -> N=2048
-    int S = (argc > 2) ? atoi(argv[2]) : 12;
-    int P_mul = (argc > 3) ? atoi(argv[3]) : 2;   // P=512 boards per individual
-    int T = (argc > 4) ? atoi(argv[4]) : 2;       // Design 2 (best performer)
-    int L = (argc > 5) ? atoi(argv[5]) : 1;
+    int N = (argc > 1) ? atoi(argv[1]) : 64;    // Population size
+    int S = (argc > 2) ? atoi(argv[2]) : 16;    // States
+    int K = (argc > 3) ? atoi(argv[3]) : 500;   // Generations
+    int P = (argc > 4) ? atoi(argv[4]) : 256;   // Boards per individual
+    int L = (argc > 5) ? atoi(argv[5]) : 1;     // Run ID
 
-    // RTX 5070 optimization: larger block size for better occupancy
-    int block_size = 512;  // Was 256, RTX 5070 handles larger blocks well
-    int N = 256 * N_mul;   // Population size
-    int P = 128 * P_mul;   // Boards per individual (same as paper)
-    int C = 383;
     int G = S * C + 1;
-    int R = 6;
-    int K = 2000; // Generations
 
-    printf("kernel_2026 (LUT): N=%d, S=%d, P=%d, Design=%d\n", N, S, P, T);
+    printf("=== D2 Random Boards Training ===\n");
+    printf("N=%d, S=%d, K=%d generations, P=%d boards per individual\n", N, S, K, P);
+    printf("Using D2 crossover (gene fitness/used ratio)\n");
     srand(time(0));
 
-    // File Setup
-    char fname[64], bname[64];
-    sprintf(fname, "txt/r-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
-    sprintf(bname, "txt/b-%d-%d-%d-%d-%d.txt", N, P, S, T, L);
-    FILE *results = fopen(fname, "w");
-    FILE *bestf = fopen(bname, "w");
-    if (!results || !bestf) {
-        printf("Error opening files! Create 'txt' folder.\n");
-        return 1;
-    }
-
-    // Memory Allocation
-    gene *pop, *best;
-    cudaMallocManaged(&pop, N * G * sizeof(gene));
-    cudaMallocManaged(&best, G * sizeof(gene));
-
-    int *F, *boards, *statistics, *sum_occ, *idx;
-    float *arr_avgfit;
-    curandState *devStates;
-    
-    cudaMallocManaged(&F, N * P * sizeof(int));
-    cudaMallocManaged(&boards, N * P * R * R * sizeof(int));
-    cudaMallocManaged(&statistics, N * C * sizeof(int));
-    cudaMallocManaged(&sum_occ, N * G * sizeof(int)); // Not used in opt kernel, kept for compat
-    cudaMallocManaged(&arr_avgfit, N * sizeof(float));
-    cudaMallocManaged(&idx, N * sizeof(int));
-    cudaMalloc((void**)&devStates, N * P * sizeof(curandState));
-
-    // Initialize Constant Memory Index
+    // Setup inverted index
     int iidx[383] = { 0,1,3,4,9,10,12,13,27,28,30,31,36,37,39,40,78,79,81,82,84,85,90,91,93,94,108,109,111,112,117,118,120,121,159,160,243,244,246,247,252,253,255,256,270,271,273,274,279,280,282,283,321,322,324,325,327,328,333,334,336,337,351,352,354,355,360,361,363,364,402,403,702,703,705,706,711,712,714,715,726,727,729,730,732,733,738,739,741,742,756,757,759,760,765,766,768,769,807,808,810,811,813,814,819,820,822,823,837,838,840,841,846,847,849,850,888,972,973,975,976,981,982,984,985,999,1000,1002,1003,1008,1009,1011,1012,1050,1051,1053,1054,1056,1057,1062,1063,1065,1066,1080,1081,1083,1084,1089,1090,1092,1131,1431,1432,1434,1435,1440,1443,1455,2187,2188,2190,2191,2196,2197,2199,2200,2214,2215,2217,2218,2223,2224,2226,2227,2265,2266,2268,2269,2271,2272,2277,2278,2280,2281,2295,2296,2298,2299,2304,2305,2307,2308,2346,2347,2430,2431,2433,2434,2439,2440,2442,2443,2457,2458,2460,2461,2466,2467,2469,2470,2508,2509,2511,2512,2514,2515,2520,2521,2523,2524,2538,2539,2541,2542,2547,2548,2550,2589,2590,2889,2890,2892,2893,2898,2899,2901,2902,2913,2914,2916,2917,2919,2920,2925,2926,2928,2929,2943,2944,2946,2947,2952,2953,2955,2956,2994,2995,2997,2998,3000,3001,3006,3007,3009,3010,3024,3025,3027,3028,3033,3034,3036,3075,3159,3160,3162,3163,3168,3169,3171,3172,3186,3187,3189,3190,3195,3196,3198,3237,3238,3240,3241,3243,3244,3249,3250,3252,3267,3268,3270,3276,3318,3618,3619,3621,3622,3627,3630,3642,4382,4391,4409,4418,4454,4463,4472,4490,4499,4535,4625,4634,4652,4661,4697,4706,4715,4733,4742,4778,5111,5120,5138,5147,5183,5192,5219,5354,5363,5381,5390,5426,5435,5462,6318,6319,6321,6322,6326,6327,6328,6330,6331,6335,6345,6346,6348,6349,6353,6354,6355,6357,6358,6362,6399,6400,6402,6403,6407,6408,6411,6426,6427,6429,6430,6434,6435,6438,6534,6535,6537,6538,6543,6546 };
-    int *h_ix = (int*)malloc(6561 * sizeof(int));
+    int* h_ix = (int*)malloc(6561 * sizeof(int));
     memset(h_ix, 0, 6561 * sizeof(int));
-    for(int k=0; k<383; k++) h_ix[iidx[k]] = k;
+    for (int k = 0; k < 383; k++) h_ix[iidx[k]] = k;
     initConstMemory(h_ix);
     free(h_ix);
 
-    // Initial Setup Kernel
-    int setup_blocks = (N * P + block_size - 1) / block_size;
-    setup_states<<<setup_blocks, block_size>>>(devStates, time(0));
-    
+    // Allocate GPU memory
+    gene *pop, *best;
+    int *F, *idx_arr, *boards;
+    float *avg_fit;
+    curandState *devStates;
+
+    int total_runs = N * P;
+
+    CUDA_CHECK(cudaMallocManaged(&pop, N * G * sizeof(gene)));
+    CUDA_CHECK(cudaMallocManaged(&best, G * sizeof(gene)));
+    CUDA_CHECK(cudaMallocManaged(&F, total_runs * sizeof(int)));
+    CUDA_CHECK(cudaMallocManaged(&avg_fit, N * sizeof(float)));
+    CUDA_CHECK(cudaMallocManaged(&idx_arr, N * sizeof(int)));
+    CUDA_CHECK(cudaMallocManaged(&boards, total_runs * 36 * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&devStates, total_runs * sizeof(curandState)));
+
+    printf("Memory allocated: pop=%lluMB, F=%lluMB, boards=%lluMB\n",
+        (unsigned long long)(N * G * sizeof(gene)) / (1024*1024),
+        (unsigned long long)(total_runs * sizeof(int)) / (1024*1024),
+        (unsigned long long)(total_runs * 36 * sizeof(int)) / (1024*1024));
+
+    // File setup
+    char fname[64], bname[64];
+    sprintf(fname, "txt/r-D2-%d-%d-%d-%d-%d.txt", N, S, K, P, L);
+    sprintf(bname, "txt/b-D2-%d-%d-%d-%d-%d.txt", N, S, K, P, L);
+    FILE* results = fopen(fname, "w");
+    FILE* bestf = fopen(bname, "w");
+    if (!results || !bestf) {
+        printf("Error: Cannot create output files. Make sure 'txt' directory exists.\n");
+        return -1;
+    }
+    fprintf(results, "generation,best,average\n");  // CSV header
+
+    // Initialize
+    int block_size = 256;
+    int setup_blocks = (total_runs + block_size - 1) / block_size;
+    setup_states<<<setup_blocks, block_size>>>(devStates, time(0), total_runs);
+    CUDA_CHECK_KERNEL();
+
     int pop_blocks = (N + block_size - 1) / block_size;
-    init_population<<<pop_blocks, block_size>>>(pop, G, S, devStates);
-    cudaDeviceSynchronize();
+    init_population<<<pop_blocks, block_size>>>(pop, G, S, devStates, N);
+    CUDA_CHECK_KERNEL();
+    CUDA_CHECK(cudaDeviceSynchronize());
+    printf("Initialization complete\n");
 
     float best_ind_fitness = 0.0f;
     float best_gen_fitness = 0.0f;
-    float convergence = 0.0f;
-    int gen = 0;
+    int best_idx = 0;
     time_t start = time(0);
 
     // --- EVOLUTION LOOP ---
-    // Stop when max generations reached OR population converged (avg/best > 0.97)
-    while (gen < K && convergence < 0.99) {
-        // 1. Generate Boards
-        generate_boards<<<N, P>>>(boards, devStates, R);
-        
-        // 2. Run Boards (Optimized)
-        // Shared mem size = (2 * G) integers
-        int shmem_size = (2 * G) * sizeof(int);
-        run_boards_optimized<<<N, P, shmem_size>>>(pop, boards, devStates, R, G, 80, C, F, sum_occ, statistics);
-        
-        // 3. Average Fitness
-        int avg_blocks = (N + block_size - 1) / block_size;
-        average_fitness<<<avg_blocks, block_size>>>(P, F, arr_avgfit, G);
-        cudaDeviceSynchronize();
+    for (int gen = 0; gen < K; gen++) {
+        // Generate random boards
+        int gen_blocks = (total_runs + block_size - 1) / block_size;
+        generate_boards<<<gen_blocks, block_size>>>(boards, devStates, total_runs);
+        CUDA_CHECK_KERNEL();
 
-        // 4. CPU Stats (Find Best)
-        float gen_fitness = 0.0f;
-        float ind_fitness = 0.0f;
-        
-        for (int j = 0; j < N; j++) {
-            gen_fitness += arr_avgfit[j];
-            if (arr_avgfit[j] > ind_fitness) {
-                ind_fitness = arr_avgfit[j];
-            }
-            // Global Best Tracking
-            if (arr_avgfit[j] > best_ind_fitness) {
-                best_ind_fitness = arr_avgfit[j];
-                // Copy best to host
-                memcpy(best, &pop[j * G], G * sizeof(gene));
+        // Run all boards for all individuals (D2 version tracks gene usage)
+        int run_blocks = (total_runs + block_size - 1) / block_size;
+        run_boards_D2<<<run_blocks, block_size>>>(pop, boards, devStates, F, G, S, N, P);
+        CUDA_CHECK_KERNEL();
+        CUDA_CHECK(cudaDeviceSynchronize());
+
+        // Average fitness
+        average_fitness<<<pop_blocks, block_size>>>(F, avg_fit, N, P);
+        CUDA_CHECK_KERNEL();
+        CUDA_CHECK(cudaDeviceSynchronize());
+
+        // Find best individual
+        float gen_best = 0.0f;
+        float gen_sum = 0.0f;
+        for (int i = 0; i < N; i++) {
+            gen_sum += avg_fit[i];
+            if (avg_fit[i] > gen_best) {
+                gen_best = avg_fit[i];
+                best_idx = i;
             }
         }
-        gen_fitness /= (float)N;
-        if (gen_fitness > best_gen_fitness) best_gen_fitness = gen_fitness;
+        float gen_avg = gen_sum / N;
 
-        // Progress logging (no dots - they slow things down)
-        if (gen % 100 == 0) printf("Gen %d: Best=%.2f Avg=%.2f\n", gen, ind_fitness, gen_fitness);
-        fprintf(results, "%0.2f ", gen_fitness);
-        
-        convergence = gen_fitness / (ind_fitness + 0.0001f);
-        
-        // 5. Crossover
-        shuffle(idx, N);
-        int cross_blocks = ((N / 4) + block_size - 1) / block_size;
-        int cross_threads = (N / 4 < block_size) ? N / 4 : block_size;
-        if (cross_blocks == 0) cross_blocks = 1;
+        if (gen_best > best_ind_fitness) {
+            best_ind_fitness = gen_best;
+            int copy_blocks = (G + block_size - 1) / block_size;
+            copy_best<<<copy_blocks, block_size>>>(pop, best, G, best_idx);
+            CUDA_CHECK_KERNEL();
+            CUDA_CHECK(cudaDeviceSynchronize());  // Must sync before CPU accesses managed memory
+        }
+        if (gen_avg > best_gen_fitness) {
+            best_gen_fitness = gen_avg;
+        }
 
-        crossover<<<cross_blocks, cross_threads>>>(idx, arr_avgfit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness, sum_occ, T);
-        
-        gen++;
+        if (gen % 10 == 0 || gen == K - 1) {
+            printf("Gen %d: Best=%.4f Avg=%.4f (D2, P=%d random boards)\n", gen, gen_best, gen_avg, P);
+            fprintf(results, "%d,%.4f,%.4f\n", gen, gen_best, gen_avg);
+            fflush(results);
+        }
+
+        // Shuffle and D2 crossover
+        shuffle(idx_arr, N);
+        int cross_blocks = (N / 4 + block_size - 1) / block_size;
+        crossover_D2<<<cross_blocks, block_size>>>(idx_arr, avg_fit, pop, G, S, devStates, best_ind_fitness, best_gen_fitness, N);
+        CUDA_CHECK_KERNEL();
+        CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     // --- RESULTS ---
-    cudaDeviceSynchronize();  // Sync GPU memory before CPU access
-
+    cudaDeviceSynchronize();
     printf("\n\nFinished!\nBest Individual: %.4f\nBest Gen Mean: %.4f\n", best_ind_fitness, best_gen_fitness);
-    printf("Time: %lld seconds\n", time(0) - start);
+    printf("Time: %lld seconds\n", (long long)(time(0) - start));
 
-    // Save Best Agent
+    // Save best
     for (int i = 0; i < G; i++) {
         fprintf(bestf, "%d %d ", best[i].action, best[i].next_state);
     }
-    
+
     fclose(results);
     fclose(bestf);
-    
-    // Cleanup
-    cudaFree(pop); cudaFree(best); cudaFree(F); cudaFree(boards);
-    cudaFree(statistics); cudaFree(sum_occ); cudaFree(arr_avgfit);
-    cudaFree(idx); cudaFree(devStates);
-    
+
+    cudaFree(pop); cudaFree(best); cudaFree(F);
+    cudaFree(avg_fit); cudaFree(idx_arr); cudaFree(boards);
+    cudaFree(devStates);
+
     return 0;
 }
