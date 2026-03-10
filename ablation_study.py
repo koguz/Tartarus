@@ -2,12 +2,14 @@
 Ablation Study: Test impact of removing specific states.
 
 When the agent would transition to an ablated state, it instead
-transitions to the initial state. This tests whether certain
-state clusters are critical for edge cases.
+transitions to a random non-ablated state (seeded for reproducibility).
+This avoids biasing toward the initial state and provides a more
+neutral measure of each cluster's functional contribution.
 """
 
 import argparse
 import json
+import random
 from collections import defaultdict
 
 # Constants (matching analyze_agent.py / CUDA code)
@@ -112,19 +114,21 @@ def compute_sensor_input(board, cpx, cpy, direction):
 
 
 def run_agent_with_ablation(actions, next_states, initial_state, board_template,
-                            start_x, start_y, direction, ablated_states):
+                            start_x, start_y, direction, ablated_states,
+                            valid_states, rng):
     """
     Run agent on a board with certain states ablated.
-    When transitioning to an ablated state, use initial_state instead.
+    When transitioning to an ablated state, redirect to a random
+    non-ablated state to avoid biasing toward the initial state.
     """
     board = board_template.copy()
     cpx, cpy = start_x, start_y
     dir_ = direction
     cs = initial_state
 
-    # If initial state is ablated, we have a problem - but run anyway
+    # If initial state is ablated, pick a random valid state
     if cs in ablated_states:
-        cs = initial_state  # No change, but log this case
+        cs = rng.choice(valid_states)
 
     ablation_count = 0
 
@@ -134,9 +138,9 @@ def run_agent_with_ablation(actions, next_states, initial_state, board_template,
         action = actions[gene_idx]
         next_state = next_states[gene_idx]
 
-        # ABLATION: redirect ablated states to initial state
+        # ABLATION: redirect ablated states to a random valid state
         if next_state in ablated_states:
-            next_state = initial_state
+            next_state = rng.choice(valid_states)
             ablation_count += 1
 
         # Execute action
@@ -184,10 +188,17 @@ def run_ablation_study(agent_path, boards_path, ablated_states, num_states=128):
     print(f"  Loaded {len(boards)} boards")
 
     print(f"\nAblated states: {sorted(ablated_states)}")
-    print(f"  ({len(ablated_states)} states will redirect to initial state {initial_state})")
+
+    # Build list of valid (non-ablated) states for random redirection
+    all_states = set(range(num_states))
+    valid_states = sorted(all_states - ablated_states)
+    print(f"  ({len(ablated_states)} states ablated, {len(valid_states)} remaining)")
+    print(f"  Redirects go to a random non-ablated state (seed=42)")
 
     if initial_state in ablated_states:
         print(f"  WARNING: Initial state {initial_state} is in ablated set!")
+
+    rng = random.Random(42)
 
     # Run on all configurations
     fitness_distribution = defaultdict(int)
@@ -204,7 +215,7 @@ def run_ablation_study(agent_path, boards_path, ablated_states, num_states=128):
                 fitness, ablation_count = run_agent_with_ablation(
                     actions, next_states, initial_state,
                     board, start_x, start_y, direction,
-                    ablated_states
+                    ablated_states, valid_states, rng
                 )
 
                 total_fitness += fitness
