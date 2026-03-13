@@ -1,6 +1,8 @@
 # Tartarus
 
-GPU-accelerated evolution of Finite State Machines (FSMs) to solve the Tartarus problem. Currently extending it to include the analysis of the new agent that scores 9.84 in all 74,760 Tartarus boards. 
+GPU-accelerated evolution of Finite State Machines (FSMs) to solve the Tartarus problem, and a behavior discovery methodology to explain the resulting agent's policy. 
+
+A 128-state FSM is evolved using a genetic algorithm on CUDA, trained on all 74,760 valid board configurations, achieving a true score of **9.84** where 90% of boards solved with a perfect 10. The agent's policy is analyzed through spectral clustering of a tactic transition graph and Infomap community detection on the state transition graph. 
 
 ## The Tartarus Problem
 
@@ -19,170 +21,250 @@ Tartarus is a benchmark problem for evaluating artificial agents. An agent opera
 **Problem space:**
 - 383 valid sensory combinations (out of 3^8 = 6561 possible)
 - 1,869 unique board layouts (6 boxes in 4x4 inner grid)
-- 74,760 total configurations (1,869 layouts × 10 starting positions × 4 directions)
+- 74,760 total configurations (1,869 layouts x 10 starting positions x 4 directions)
 
-## Files
+## Repository Structure
 
-### Training Kernels
+### CUDA Training Kernels
 
- - kernel.cu - Kernel developed in 2019-2020 using CUDA on RTX 1050... [^2]
- - kernel_2026.cu - Kernel updated to take advantage of CUDA on RTX 5070
- - kernel_allboards.cu - 2026 kernel updated to use all 74760 boards during training 
- - kernel_D2_allboards.cu - This version uses the D2 design from 2020 paper. 
- - kernel_test_all.cu - Runs a solution on all boards, and prints statistics, such as state and score distribution
+| File | Description |
+|------|-------------|
+| `kernel.cu` | Original kernel from the 2020 paper, developed for RTX 1050 |
+| `kernel_2026.cu` | Updated kernel for modern GPUs (RTX 50 series) with sampled board training |
+| `kernel_allboards.cu` | Trains on all 74,760 boards using the baseline D0 design |
+| `kernel_D2_allboards.cu` | **Main training kernel.** Trains on all 74,760 boards using the D2 design (per-gene fitness crossover). Produced the 9.84 agent |
+| `kernel_test_all.cu` | Evaluates a trained solution on all 74,760 boards. Outputs score distribution and per-state usage statistics |
+| `kernel_analyze.cu` | Generates CSV files for state-combination heatmaps, transition matrices, and push statistics |
 
-Compile using `nvcc -arch=sm_120 -o Tartarus74K.exe kernel_allboards.cu -lcurand` - update the input and output filenames as needed. The `-arch=sm_120` flag optimizes for RTX 50 series (Blackwell). Use `-arch=sm_89` for RTX 40 series, `-arch=sm_86` for RTX 30 series. 
+### Python Analysis (used in the paper)
 
-### Visualization (Python)
+| File | Description |
+|------|-------------|
+| `analyze_agent.py` | Runs the FSM agent on all 74,760 boards in Python. Builds the state transition graph, combination transition graph, and tactic transition graph. Saves sequences and statistics as `.json` and `.pkl` files |
+| `behavior_segmentation.py` | Spectral clustering on the tactic transition graph. Combines transition probabilities with Hamming similarity (controlled by lambda) to discover behavioral clusters |
+| `lambda_sensitivity.py` | Sweeps lambda from 0.0 to 1.0 to validate that the number of clusters is stable |
+| `state_clustering.py` | InfoMap state clustering |
+| `print_cluster_tactics.py` | Extracts and prints the dominant tactic sequences within each behavioral cluster |
+| `analyze_communities.py` | Infomap community detection on the state transition graph. Identifies state modules based on transition flow |
+| `null_model.py` | Null model test for behavior-state alignment. Generates 10,000 random partitions and computes ARI/NMI distributions to test significance |
+| `ablation_study.py` | Lesion study: removes state clusters and evaluates the agent on all boards. Transitions into ablated states are redirected to random non-ablated states |
 
-| File | Description | Requirements |
-|------|-------------|--------------|
-| `visualize_analysis.py` | Generate heatmaps, network graphs, state profiles | `pip install pandas numpy matplotlib seaborn networkx` |
-| `visualize_graph.py` | Visualizes the graph | `pip install numpy matplotlib networkx` |
+### Python Visualization
+
+| File | Description |
+|------|-------------|
+| `viewer_2026.py` | Step-by-step visual replay of the agent on a Tartarus board. Saves each step as a PNG image with state/action annotations |
+| `visualize_graph.py` | Visualizes the state transition graph with node sizes proportional to visit frequency and edge thickness proportional to transition weight. Supports interactive HTML output via PyVis |
+| `visualize_tactic_pattern.py` | Renders tactic sequences as 3x3 grids showing the agent's perception and action at each step |
+| `visualize_analysis.py` | Generates heatmaps, network graphs, and behavioral profiles from `kernel_analyze.cu` CSV output |
+
+### Exploratory Scripts (not in the paper)
+
+| File | Description |
+|------|-------------|
+| `analyze_behaviors.py` | Earlier behavior analysis approach |
+| `analyze_combo_behaviors.py` | Combination-level behavior analysis |
+| `behavior_cluster_decoder.py` | Attempts to decode actions within behavior clusters |
+| `segment_behaviors.py` | Alternative segmentation approach |
+| `segment_by_independence.py` | Independence-based segmentation |
+| `sequitur_analysis.py` | Sequitur grammar induction on action sequences |
+| `find_patterns.py` | Pattern finding in state sequences |
+| `combo_find_patterns.py` | Pattern finding in combination sequences |
+| `tactic_find_patterns.py` | Pattern finding in tactic sequences |
+| `query_state.py` | Interactive query tool for inspecting individual states |
+| `visualize_brain_map.py` | Brain-map-style visualization of state modules |
+| `visualize_combo_graph.py` | Visualizes the combination transition graph |
+| `analyze_iidx.py` | Compares inverted index arrays between kernels |
+| `viewer.py` | Original step-by-step viewer (2020, hardcoded Windows paths) |
+| `viewer_comparison.py` | Side-by-side comparison of two agents on the same board |
+| `testing.py` | Python-based fitness evaluation on random boards (2020) |
 
 ### Data Files
 
-The realboard.txt contains all 1,869 unique board layouts. Start the agent in the remaining 10 positions with a random orientation. This results in 1869 * 10 * 4 = 74760 unique boards [^2]. The boards.txt contains the boards before we showed that the number of boards is 74760 in the 2020 paper [^1][^2]. 
+| File | Description |
+|------|-------------|
+| `realboard.txt` | All 1,869 unique board layouts |
+| `boards.txt` | Board file from before the unique board count was established |
+| `best/b-D2-4096-128-3000-1.txt` | Best agent chromosome (the 9.84 agent) |
+| `best/r-D2-4096-128-3000-1.txt` | Training log (generation, best, average) |
+| `best/sc_txt_b-D2-4096-128-3000-1.txt` | Score distribution from `kernel_test_all` |
+| `best/st_txt_b-D2-4096-128-3000-1.txt` | Per-state usage statistics |
+| `best/results_txt_b-D2-4096-128-3000-1.txt` | Per-board results |
+| `images/` | Agent and box sprites for the viewer |
+
+## Requirements
+
+**CUDA (for training and testing):**
+- NVIDIA GPU with CUDA support
+- CUDA Toolkit (nvcc compiler)
+
+**Python (for analysis and visualization):**
+
+```
+pip install -r requirements.txt
+```
+
+Key libraries: `numpy`, `matplotlib`, `networkx`, `infomap`, `scikit-learn`, `scipy`, `seaborn`, `pandas`, `pillow`, `pyvis`
+
 ## Usage
 
-### Training with Sampled Boards (kernel_2026.cu)
+### Step 1: Train an Agent
+
+Compile and run the D2 all-boards kernel:
 
 ```bash
-nvcc -o Tartarus2026.exe kernel_2026.cu -lcurand
-Tartarus2026.exe <N1> <S> <K> <P> <T1> <L>
+nvcc -arch=sm_120 -o TartarusD2.exe kernel_D2_allboards.cu -lcurand
+./TartarusD2.exe <N> <S> <K> <L>
 ```
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| N1 | Population size multiplier (×256) | 5 → 1280 individuals |
-| S | Number of FSM states | 16, 20, 24 |
-| K | Number of generations | 1000 |
-| P | Boards per test multiplier (×128) | 4 → 512 boards |
-| T1 | Tournament size | 1 |
+| Parameter | Description | Paper value |
+|-----------|-------------|-------------|
+| N | Population size | 4096 |
+| S | Number of FSM states | 128 |
+| K | Number of generations | 3000 |
 | L | Run ID (for file naming) | 1 |
 
-Example:
 ```bash
-Tartarus2026.exe 5 16 1000 4 1 1
+./TartarusD2.exe 4096 128 3000 1
 ```
 
-### Training on All Boards using D2 (kernel_D2_allboards.cu)
+Use `-arch=sm_120` for RTX 50 series (Blackwell), `-arch=sm_89` for RTX 40 series, `-arch=sm_86` for RTX 30 series.
+
+Output files are saved to the `txt/` directory:
+- `txt/r-D2-N-S-K-L.txt` -- Training log (generation, best score, average score)
+- `txt/b-D2-N-S-K-L.txt` -- Best agent chromosome
+
+### Step 2: Evaluate the Agent
 
 ```bash
-nvcc -o TartarusD2.exe kernel_D2_allboards.cu -lcurand
-TartarusD2.exe <N> <S> <K> <L>
+nvcc -arch=sm_120 -o TartarusTestAll.exe kernel_test_all.cu -lcurand
+./TartarusTestAll.exe <solution_file> <S>
 ```
-
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| N | Population size | 512, 1024 |
-| S | Number of FSM states | 20, 24, 32 |
-| K | Number of generations | 4000, 6000 |
-| L | Run ID | 1 |
-
-Example:
-```bash
-TartarusD2.exe 1024 24 6000 1
-```
-
-Output files:
-- `txt/r-all-N-S-L.txt` - Results per generation
-- `txt/b-all-N-S-L.txt` - Best solution
-
-### Testing a Solution
 
 ```bash
-nvcc -o TartarusTestAll.exe kernel_test_all.cu -lcurand
-TartarusTestAll.exe <solution_file> <S>
+./TartarusTestAll.exe best/b-D2-4096-128-3000-1.txt 128
 ```
 
-Example:
-```bash
-TartarusTestAll.exe txt/b-all-1024-24-1.txt 24
-```
+Outputs:
+- Average true score across all 74,760 boards
+- `sc_<solution_file>` -- Score distribution (how many boards scored 10, 9, 8, ...)
+- `st_<solution_file>` -- Per-state usage counts
+- `results_<solution_file>` -- Per-board scores
 
-Output includes:
-- Average score across all 74,760 boards
-- Score histogram (how many boards get 10, 9, 8, ... 0)
-- State usage statistics
+### Step 3: Build Analysis Data
 
-### Analyzing a Solution
+Run the agent in Python on all 74,760 boards to collect state, combination, and tactic transition graphs:
 
 ```bash
-nvcc -o TartarusAnalyze.exe kernel_analyze.cu
-TartarusAnalyze.exe <solution_file> <S>
+python analyze_agent.py best/b-D2-4096-128-3000-1.txt 128
 ```
 
-Example:
-```bash
-TartarusAnalyze.exe txt/b-all-1024-24-1.txt 24
-```
+This produces `analysis_*.json` and `analysis_*.pkl` files used by subsequent scripts.
 
-Generates CSV files for:
-- State-combination heatmap
-- State transition matrix
-- Push statistics per state
-- Memory usage analysis
+### Step 4: Behavior Discovery (Spectral Clustering)
 
-### Visualizing Analysis Results
+Sweep lambda values and find k. 
 
 ```bash
-python visualize_analysis.py <S> [output_prefix]
+python lambda_sensitivity.py
 ```
 
-Example:
+Cluster the 64 tactics into behavioral groups:
+
 ```bash
-python visualize_analysis.py 24 brain_24state
+python behavior_segmentation.py --lambda 0.25
 ```
 
-Generates PNG visualizations:
-- `brain_24state_heatmap.png` - State × Combination usage
-- `brain_24state_transitions.png` - State transition network
-- `brain_24state_state_profiles.png` - Mover vs Turner states
-- `brain_24state_push_analysis.png` - Which states push boxes
-- `brain_24state_communities.png` - State clusters
-- `brain_24state_memory_usage.png` - State-dependent behavior
+To see the dominant tactic sequences in each cluster:
+
+```bash
+python print_cluster_tactics.py
+```
+
+### Step 5: State Module Detection (Infomap) and Alignment
+
+Detect communities in the state transition graph using k:
+
+```bash
+python state_clustering.py --k 7
+```
+
+Test whether state modules and behavior clusters are aligned:
+
+```bash
+python null_model.py
+```
+
+### Step 6: Ablation
+
+Measure the impact of removing state modules:
+
+```bash
+python ablation_study.py best/b-D2-4096-128-3000-1.txt 128
+```
+
+### Visualization
+
+Replay the agent step by step on a board:
+
+```bash
+python viewer_2026.py best/b-D2-4096-128-3000-1.txt 128
+```
+
+Visualize the state transition graph:
+
+```bash
+python visualize_graph.py [--interactive]
+```
+
+Visualize a tactic sequence:
+
+```bash
+python visualize_tactic_pattern.py --numeric 34-34-35
+```
+
+## FSM Structure (D2 Design)
+
+Each individual in the population consists of:
+- `S` states (e.g., 128)
+- `383` valid sensor combinations
+- `G = S x 383 + 1` genes total
+
+Each gene is a tuple of `(action, next_state, used, fitness)`:
+- `action`: 0 (forward), 1 (turn left), 2 (turn right)
+- `next_state`: which state to transition to (0 to S-1)
+- `used`: how many times this gene is activated during evaluation
+- `fitness`: cumulative score contribution of this gene
+
+The last gene (`G-1`) stores the initial state. During crossover, offspring inherit the gene with the higher fitness-to-usage ratio, ensuring beneficial genes are preserved.
 
 ## Results
 
-| Configuration | States | Score | Notes |
-|---------------|--------|-------|-------|
-| 2020 Paper (baseline) | 8 | 8.54 | Sampled training |
-| kernel_2026 (P=512) | 16 | 8.85 | Training fitness |
-| kernel_allboards | 16 | 8.77 | True fitness |
-| kernel_allboards | 20 | 8.96 | True fitness |
-| kernel_allboards_D2 | 128 | 9.84 | **Current best** |
+| Configuration | States | Boards | Design | True Score |
+|---------------|--------|--------|--------|------------|
+| 2020 Paper | 12 | 256 (sampled) | D2 | 8.54 |
+| This paper | 128 | 74,760 (all) | D2 | **9.84** |
 
-## FSM Structure for D2
+Score distribution for the 9.84 agent:
 
-Each FSM solution consists of:
-- `S` states (e.g., 24)
-- `383` valid sensor combinations
-- `G = S × 383 + 1` genes total
-
-Each gene contains:
-- `action`: 0 (forward), 1 (turn left), 2 (turn right)
-- `next_state`: which state to transition to (0 to S-1)
-- `used`: how many times this combination is used
-- `fitness`: fitness value of this combination 
-
-The last gene (`G-1`) stores the initial state.
-
-# Analysis
-
-For analysis follow the following steps. 
-
-
-
-
-# Behavior Segmentation
-
-Run behavior_segmentation.py with a lambda parameter of 0.2 or 0.25 to give longer sequences in the clusters. Then run print_cluster_tactics.py to get the sequences in the cluster. There's also a behavior_cluster_decoder.py that attempts to decode the actions. 
+| Score | Boards | Percentage |
+|-------|--------|------------|
+| 10 | 67,499 | 90.2867% |
+| 9 | 5,903 | 7.8959% |
+| 8 | 520 | 0.6956% |
+| 7 | 50 | 0.0669% |
+| 6 | 1 | 0.0013% |
+| 5 | 1 | 0.0013% |
+| 4 | 666 | 0.8909% |
+| 3 | 97 | 0.1297% |
+| 2 | 23 | 0.0308% |
+| 1 | 0 | 0.00% |
+| 0 | 0 | 0.00% |
 
 ## References
 
-Here are all the related references, both by Kaya Oğuz and others. 
+[1] K. Oguz, "Adaptive Evolution of Finite State Machines for the Tartarus Problem," *2019 Innovations in Intelligent Systems and Applications Conference (ASYU)*, 2019, pp. 1-5, doi: 10.1109/ASYU48272.2019.8946413
 
-[^1]: Kaya Oğuz, Adaptive Evolution of Finite State Machines for the Tartarus Problem, 2019 Innovations in Intelligent Systems and Applications Conference (ASYU), 2019, pp. 1-5, doi: 10.1109/ASYU48272.2019.8946413
-[^2]: Kaya Oğuz, True scores for tartarus with adaptive GAs that evolve FSMs on GPU, Information Sciences, 2020, pp. 1-15, doi: 10.1016/j.ins.2020.03.072.
-[^3]: Kaya Oğuz, Estimating the difficulty of Tartarus instances, Pamukkale Univ Muh Bilim Derg, 2021, pp. 114-121, doi: 10.5505/pajes.2020.00515.
+[2] K. Oguz, "True scores for tartarus with adaptive GAs that evolve FSMs on GPU," *Information Sciences*, 2020, pp. 1-15, doi: 10.1016/j.ins.2020.03.072
+
+[3] K. Oguz, "Estimating the difficulty of Tartarus instances," *Pamukkale Univ Muh Bilim Derg*, 2021, pp. 114-121, doi: 10.5505/pajes.2020.00515
